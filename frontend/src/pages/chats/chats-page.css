@@ -1,0 +1,13 @@
+.chats-layout {
+  @apply grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] gap-4;
+  @apply lg:grid-cols-[minmax(260px,320px)_1fr] lg:grid-rows-[minmax(0,1fr)];
+}
+
+.chats-page {
+  /* Ocupa a coluna flex do main (scroll continua no thread) */
+  @apply flex min-h-0 flex-1 flex-col gap-4;
+}
+
+.chats-thread {
+  scrollbar-gutter: stable;
+}

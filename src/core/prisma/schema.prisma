@@ -1,0 +1,157 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+
+
+model Operadora {
+  id_operadora       Int                    @id @default(autoincrement())
+  nome_operadora     String                 @unique
+  ativo              Boolean                @default(true)
+  criado_em          DateTime               @default(now()) @db.Timestamptz(6)
+  atualizado_em      DateTime               @default(now()) @db.Timestamptz(6)
+  linhas_produto     LinhaProduto[]
+  elegibilidades     ElegibilidadePme[]
+  documentos         DocumentoContratacao[]
+
+  @@map("operadora")
+}
+
+model LinhaProduto {
+  id_linha_produto Int       @id @default(autoincrement())
+  id_operadora     Int
+  nome_linha       String
+  tipo_publico     String
+  ativo            Boolean   @default(true)
+  criado_em        DateTime  @default(now()) @db.Timestamptz(6)
+  atualizado_em    DateTime  @default(now()) @db.Timestamptz(6)
+  operadora        Operadora @relation(fields: [id_operadora], references: [id_operadora], onDelete: Restrict)
+  planos           Plano[]
+
+  @@unique([id_operadora, nome_linha, tipo_publico])
+  @@map("linha_produto")
+}
+
+model Plano {
+  id_plano                   Int                        @id @default(autoincrement())
+  id_linha_produto           Int
+  nome_plano                 String
+  nome_comercial             String?
+  tipo_contratacao           String?
+  abrangencia                String?
+  descricao_comercial        String?
+  // Campos de apoio para consulta rápida (redundância controlada em relação a Cobertura).
+  possui_ortodontia          Boolean                    @default(false)
+  possui_protese             Boolean                    @default(false)
+  possui_clareamento         Boolean                    @default(false)
+  possui_doc_ortodontica     Boolean                    @default(false)
+  ativo                      Boolean                    @default(true)
+  criado_em                  DateTime                   @default(now()) @db.Timestamptz(6)
+  atualizado_em              DateTime                   @default(now()) @db.Timestamptz(6)
+  linha_produto              LinhaProduto               @relation(fields: [id_linha_produto], references: [id_linha_produto], onDelete: Restrict)
+  tabela_preco               TabelaPreco[]
+  coberturas                 Cobertura[]
+  disponibilidades_geo       DisponibilidadeGeografica[]
+
+  @@unique([id_linha_produto, nome_plano])
+  @@map("plano")
+}
+
+model TabelaPreco {
+  id_tabela_preco         Int      @id @default(autoincrement())
+  id_plano                Int
+  codigo_plano            String
+  modalidade_preco        String
+  faixa_vidas_min         Int
+  faixa_vidas_max         Int
+  tipo_pagamento          String?
+  valor_por_pessoa        Decimal  @db.Decimal(12, 2)
+  cross_flag              Boolean  @default(false) @map("cross")
+  exige_plano_medico_amil Boolean  @default(false)
+  observacao              String?
+  ativo                   Boolean  @default(true)
+  criado_em               DateTime @default(now()) @db.Timestamptz(6)
+  atualizado_em           DateTime @default(now()) @db.Timestamptz(6)
+  plano                   Plano    @relation(fields: [id_plano], references: [id_plano], onDelete: Cascade)
+
+  @@index([id_plano], map: "idx_tabela_preco_plano")
+  @@map("tabela_preco")
+}
+
+model Cobertura {
+  id_cobertura       Int      @id @default(autoincrement())
+  id_plano           Int
+  categoria          String
+  item_cobertura     String
+  tipo_cobertura     String
+  observacao         String?
+  ativo              Boolean  @default(true)
+  criado_em          DateTime @default(now()) @db.Timestamptz(6)
+  atualizado_em      DateTime @default(now()) @db.Timestamptz(6)
+  plano              Plano    @relation(fields: [id_plano], references: [id_plano], onDelete: Cascade)
+
+  @@index([id_plano], map: "idx_cobertura_plano")
+  @@map("cobertura")
+}
+
+model DisponibilidadeGeografica {
+  id_disponibilidade        Int      @id @default(autoincrement())
+  id_plano                  Int
+  uf                        String   @db.Char(2)
+  cidade                    String
+  restricao_comercializacao String?
+  observacao                String?
+  ativo                     Boolean  @default(true)
+  criado_em                 DateTime @default(now()) @db.Timestamptz(6)
+  atualizado_em             DateTime @default(now()) @db.Timestamptz(6)
+  plano                     Plano    @relation(fields: [id_plano], references: [id_plano], onDelete: Cascade)
+
+  @@index([id_plano, uf, cidade], map: "idx_disponibilidade_plano_uf_cidade")
+  @@map("disponibilidade_geografica")
+}
+
+model ElegibilidadePme {
+  id_elegibilidade           Int       @id @default(autoincrement())
+  id_operadora               Int
+  tipo_empresa               String
+  vidas_minimas              Int
+  vidas_maximas              Int
+  aceita_mei                 Boolean   @default(false)
+  cnpj_tempo_minimo_meses    Int?
+  exige_vinculo_empregaticio Boolean   @default(false)
+  permite_dependente         Boolean   @default(true)
+  descricao_regra            String?
+  observacao                 String?
+  ativo                      Boolean   @default(true)
+  criado_em                  DateTime  @default(now()) @db.Timestamptz(6)
+  atualizado_em              DateTime  @default(now()) @db.Timestamptz(6)
+  operadora                  Operadora @relation(fields: [id_operadora], references: [id_operadora], onDelete: Restrict)
+
+  @@map("elegibilidade_pme")
+}
+
+model DocumentoContratacao {
+  id_documento   Int       @id @default(autoincrement())
+  id_operadora   Int
+  tipo_publico   String
+  tipo_empresa   String?
+  nome_documento String
+  obrigatorio    Boolean   @default(true)
+  descricao      String?
+  observacao     String?
+  ativo          Boolean   @default(true)
+  criado_em      DateTime  @default(now()) @db.Timestamptz(6)
+  atualizado_em  DateTime  @default(now()) @db.Timestamptz(6)
+  operadora      Operadora @relation(fields: [id_operadora], references: [id_operadora], onDelete: Restrict)
+
+  @@map("documento_contratacao")
+}

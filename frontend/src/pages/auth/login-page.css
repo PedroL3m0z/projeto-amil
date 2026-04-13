@@ -1,0 +1,7 @@
+.login-page-root {
+  @apply flex min-h-screen items-center justify-center bg-muted/30 px-4;
+}
+
+.login-page-card {
+  @apply w-full max-w-md shadow-lg;
+}
