@@ -1,14 +1,23 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
+import { useAuth } from '@/contexts/auth-context'
 import { cn } from '@/lib/utils'
 import { ScrollText } from 'lucide-react'
 import { toast } from 'sonner'
 
 type Tone = 'formal' | 'neutro' | 'informal'
+type AiContextPayload = {
+  assistantName: string
+  instructions: string
+  knowledge: string
+  tone: Tone
+  avoidPromises: boolean
+  escalateMedical: boolean
+}
 
 const toneOptions: { value: Tone; label: string; hint: string }[] = [
   { value: 'formal', label: 'Formal', hint: 'Tratamento respeitoso e linguagem corporativa.' },
@@ -17,15 +26,69 @@ const toneOptions: { value: Tone; label: string; hint: string }[] = [
 ]
 
 export function ContextoPage() {
+  const { apiFetch } = useAuth()
   const [assistantName, setAssistantName] = useState('')
   const [instructions, setInstructions] = useState('')
   const [knowledge, setKnowledge] = useState('')
   const [tone, setTone] = useState<Tone>('neutro')
   const [avoidPromises, setAvoidPromises] = useState(true)
   const [escalateMedical, setEscalateMedical] = useState(true)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
 
-  const handleSave = () => {
-    toast.info('Ainda sem API: esta área é só a interface. A gravação no servidor virá a seguir.')
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await apiFetch('/api/settings/context')
+        if (!res.ok) {
+          toast.error('Não foi possível carregar o contexto.')
+          return
+        }
+        const data = (await res.json()) as AiContextPayload
+        if (cancelled) return
+        setAssistantName(data.assistantName ?? '')
+        setInstructions(data.instructions ?? '')
+        setKnowledge(data.knowledge ?? '')
+        setTone(data.tone ?? 'neutro')
+        setAvoidPromises(Boolean(data.avoidPromises))
+        setEscalateMedical(Boolean(data.escalateMedical))
+      } catch {
+        if (!cancelled) toast.error('Erro ao carregar contexto.')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [apiFetch])
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      const res = await apiFetch('/api/settings/context', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          assistantName,
+          instructions,
+          knowledge,
+          tone,
+          avoidPromises,
+          escalateMedical,
+        } satisfies AiContextPayload),
+      })
+      if (!res.ok) {
+        toast.error(`Erro ${String(res.status)} ao guardar contexto.`)
+        return
+      }
+      toast.success('Contexto guardado com sucesso.')
+    } catch {
+      toast.error('Não foi possível guardar o contexto.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -42,7 +105,7 @@ export function ContextoPage() {
             opções serão ligadas ao motor de respostas quando o backend estiver pronto.
           </p>
         </div>
-        <Button type="button" onClick={handleSave}>
+        <Button type="button" onClick={() => void handleSave()} disabled={loading || saving}>
           Guardar contexto
         </Button>
       </header>
@@ -68,6 +131,7 @@ export function ContextoPage() {
               placeholder="Ex.: És o assistente da clínica X. Respondes só a questões sobre marcações e informações públicas do site. Se não souberes, pedes contacto humano."
               value={instructions}
               onChange={(e) => setInstructions(e.target.value)}
+              disabled={loading || saving}
             />
           </CardContent>
         </Card>
@@ -92,6 +156,7 @@ export function ContextoPage() {
               placeholder="Cola aqui bullets ou parágrafos com informação que queres que a IA use nas respostas."
               value={knowledge}
               onChange={(e) => setKnowledge(e.target.value)}
+              disabled={loading || saving}
             />
           </CardContent>
         </Card>
@@ -109,6 +174,7 @@ export function ContextoPage() {
                 placeholder="Ex.: Ana · Suporte Amil"
                 value={assistantName}
                 onChange={(e) => setAssistantName(e.target.value)}
+                disabled={loading || saving}
               />
             </div>
 
@@ -120,6 +186,7 @@ export function ContextoPage() {
                     key={opt.value}
                     type="button"
                     onClick={() => setTone(opt.value)}
+                    disabled={loading || saving}
                     className={cn(
                       'rounded-lg border px-3 py-3 text-left text-sm transition-colors',
                       'hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
@@ -145,6 +212,7 @@ export function ContextoPage() {
                   className="mt-0.5 h-4 w-4 rounded border-input"
                   checked={avoidPromises}
                   onChange={(e) => setAvoidPromises(e.target.checked)}
+                  disabled={loading || saving}
                 />
                 <span className="text-sm leading-snug">
                   <span className="font-medium">Evitar promessas comerciais</span>
@@ -159,6 +227,7 @@ export function ContextoPage() {
                   className="mt-0.5 h-4 w-4 rounded border-input"
                   checked={escalateMedical}
                   onChange={(e) => setEscalateMedical(e.target.checked)}
+                  disabled={loading || saving}
                 />
                 <span className="text-sm leading-snug">
                   <span className="font-medium">Encaminhar temas sensíveis</span>
@@ -173,9 +242,7 @@ export function ContextoPage() {
         </Card>
       </div>
 
-      <p className="text-center text-xs text-muted-foreground">
-        Os valores acima existem só nesta página até existir endpoint para guardar e aplicar no bot.
-      </p>
+      <p className="text-center text-xs text-muted-foreground">Contexto global salvo no Redis.</p>
     </div>
   )
 }

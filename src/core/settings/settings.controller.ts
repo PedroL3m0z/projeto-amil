@@ -7,6 +7,7 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import { SetAiContextDto } from './dto/set-ai-context.dto';
 import { SetGeminiKeyDto } from './dto/set-gemini-key.dto';
 import { SettingsService } from './settings.service';
 
@@ -37,6 +38,33 @@ export class SettingsController {
   @ApiOkResponse({ schema: { example: { ok: true } } })
   async setGemini(@Body() body: SetGeminiKeyDto) {
     await this.settingsService.setGeminiApiKey(body.apiKey ?? '');
+    return { ok: true as const };
+  }
+
+  @Get('context')
+  @ApiOperation({ summary: 'Obtém o contexto global da IA salvo no Redis.' })
+  @ApiOkResponse({
+    schema: {
+      example: {
+        assistantName: 'Ana · Suporte Amil',
+        instructions: 'Responda com clareza e sem promessas comerciais.',
+        knowledge: 'Atendimento em horário comercial.',
+        tone: 'neutro',
+        avoidPromises: true,
+        escalateMedical: true,
+      },
+    },
+  })
+  async getContext() {
+    return this.settingsService.getAiContext();
+  }
+
+  @Put('context')
+  @ApiOperation({ summary: 'Atualiza o contexto global da IA no Redis.' })
+  @ApiBody({ type: SetAiContextDto })
+  @ApiOkResponse({ schema: { example: { ok: true } } })
+  async setContext(@Body() body: SetAiContextDto) {
+    await this.settingsService.setAiContext(body);
     return { ok: true as const };
   }
 }
