@@ -1,8 +1,11 @@
+export type BotMessageStatus = 'sent' | 'delivered' | 'read';
+
 export type BotChatMessage = {
   id: string;
   at: string;
   text: string;
   fromMe: boolean;
+  status?: BotMessageStatus;
 };
 
 export type BotChatSummary = {

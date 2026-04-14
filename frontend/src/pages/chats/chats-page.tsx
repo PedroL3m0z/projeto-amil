@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAuth } from '@/contexts/auth-context'
 import { cn } from '@/lib/utils'
-import { AlertCircle, Send } from 'lucide-react'
+import { AlertCircle, Check, CheckCheck, Send } from 'lucide-react'
 import { toast } from 'sonner'
 import './chats-page.css'
 
@@ -27,6 +27,7 @@ type ChatMessage = {
   at: string
   text: string
   fromMe: boolean
+  status?: 'sent' | 'delivered' | 'read'
 }
 
 type BotConnection = {
@@ -243,12 +244,21 @@ export function ChatsPage() {
         return
       }
       setText('')
-      toast.success('Mensagem enviada.')
     } catch {
       toast.error('Não foi possível enviar a mensagem.')
     } finally {
       setSending(false)
     }
+  }
+
+  function renderOutboundStatus(status?: ChatMessage['status']) {
+    if (status === 'read') {
+      return <CheckCheck className="h-3.5 w-3.5 text-sky-200" aria-label="Lida" />
+    }
+    if (status === 'delivered') {
+      return <CheckCheck className="h-3.5 w-3.5 text-primary-foreground/80" aria-label="Entregue" />
+    }
+    return <Check className="h-3.5 w-3.5 text-primary-foreground/80" aria-label="Enviada" />
   }
 
   return (
@@ -370,14 +380,15 @@ export function ChatsPage() {
                         )}
                       >
                         <p className="whitespace-pre-wrap break-words">{m.text}</p>
-                        <p
+                        <div
                           className={cn(
-                            'mt-1 text-[11px] tabular-nums',
+                            'mt-1 flex items-center justify-end gap-1 text-[11px] tabular-nums',
                             m.fromMe ? 'text-primary-foreground/80' : 'text-muted-foreground',
                           )}
                         >
-                          {formatMessageTime(m.at)}
-                        </p>
+                          <span>{formatMessageTime(m.at)}</span>
+                          {m.fromMe ? renderOutboundStatus(m.status) : null}
+                        </div>
                       </div>
                     </div>
                   ))}

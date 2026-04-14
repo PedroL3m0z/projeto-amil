@@ -44,10 +44,24 @@ services:
       REDIS_URL: redis://redis:6379
     ports:
       - '3000:3000'
+    volumes:
+      - ./:/app
+    command: sh -c "npm install && npm install --prefix frontend && npm run build:frontend && npm run start:dev"
+
+  frontend:
+    image: node:22-alpine
+    container_name: projeto_amil_frontend
+    restart: unless-stopped
+    working_dir: /app
+    depends_on:
+      - app
+    environment:
+      NODE_ENV: development
+    ports:
       - '5173:5173'
     volumes:
       - ./:/app
-    command: sh -c "npm install && npm install --prefix frontend && npm run start:dev"
+    command: sh -c "npm install --prefix frontend && npm run dev --prefix frontend -- --host 0.0.0.0 --port 5173"
 volumes:
   postgres_store:
   redis_data:

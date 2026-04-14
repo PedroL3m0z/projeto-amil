@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import type { Redis } from 'ioredis';
 import type { Contact, WAMessage } from 'baileys';
-import type { BotChatMessage, BotChatSummary } from './bot.types';
+import type { BotChatMessage, BotChatSummary, BotMessageStatus } from './bot.types';
 import { BOT_AUTH_REDIS } from './bot-auth.store';
 
 type Row = Omit<BotChatSummary, 'displayName'>;
@@ -26,6 +26,18 @@ function stableId(
       ? String(keyId)
       : `noid:${jid}:${Date.now()}`;
   return `${k}|${fromMe ? '1' : '0'}`;
+}
+
+function normalizeMessageStatus(raw: unknown): BotMessageStatus | null {
+  if (raw === 'read') return 'read';
+  if (raw === 'delivered') return 'delivered';
+  if (raw === 'sent') return 'sent';
+  if (typeof raw === 'number') {
+    if (raw >= 4) return 'read';
+    if (raw >= 3) return 'delivered';
+    if (raw >= 1) return 'sent';
+  }
+  return null;
 }
 
 /** Apenas conversas diretas (contato), não grupo nem canal. */
@@ -273,6 +285,7 @@ export class BotChatState implements OnModuleInit, OnModuleDestroy {
       const text = messageText(m);
       if (!text) continue;
       const fromMe = Boolean(m.key.fromMe);
+      const status = fromMe ? normalizeMessageStatus((m as { status?: unknown }).status) ?? 'sent' : undefined;
       const ts =
         typeof m.messageTimestamp === 'number'
           ? new Date(m.messageTimestamp * 1000).toISOString()
@@ -288,7 +301,7 @@ export class BotChatState implements OnModuleInit, OnModuleDestroy {
       }
       let any = false;
       for (const s of stor) {
-        if (this.pushMsg(s, { id: sid, at: ts, text, fromMe })) any = true;
+        if (this.pushMsg(s, { id: sid, at: ts, text, fromMe, status })) any = true;
       }
       if (any) {
         const inboundAuthor = !fromMe
@@ -310,6 +323,33 @@ export class BotChatState implements OnModuleInit, OnModuleDestroy {
     if (dirty) this.emitChats();
   }
 
+  processMessagesUpdate(
+    updates: Array<{
+      key?: {
+        id?: string | null;
+        fromMe?: boolean | null;
+        remoteJid?: string | null;
+        remoteJidAlt?: string | null;
+      };
+      update?: { status?: unknown };
+    }>,
+  ) {
+    const touched = new Set<string>();
+    for (const u of updates) {
+      const key = u.key;
+      if (!key?.fromMe || !key.id || !key.remoteJid) continue;
+      const nextStatus = normalizeMessageStatus(u.update?.status);
+      if (!nextStatus) continue;
+      const sid = stableId(key.remoteJid, key.id, true);
+      const stor = new Set<string>([this.storageKeyFor(key.remoteJid)]);
+      if (key.remoteJidAlt) stor.add(this.storageKeyFor(key.remoteJidAlt));
+      for (const s of stor) {
+        if (this.updateMessageStatus(s, sid, nextStatus)) touched.add(s);
+      }
+    }
+    for (const chatId of touched) this.emitMsgs(chatId);
+  }
+
   recordOutboundTextMessage(p: {
     remoteJid: string;
     remoteJidAlt?: string | null;
@@ -328,7 +368,7 @@ export class BotChatState implements OnModuleInit, OnModuleDestroy {
         stor.add(this.storageKeyFor(alt));
       }
       for (const s of stor) {
-        this.pushMsg(s, { id: sid, at: ts, text, fromMe: true });
+        this.pushMsg(s, { id: sid, at: ts, text, fromMe: true, status: 'sent' });
       }
     }
     for (const s of new Set([
@@ -512,13 +552,35 @@ export class BotChatState implements OnModuleInit, OnModuleDestroy {
     if (ids.has(msg.id)) return false;
     ids.add(msg.id);
     const list = this.messagesByChat.get(jid) ?? [];
-    list.push(msg);
+    list.push({
+      ...msg,
+      status: msg.fromMe ? (msg.status ?? 'sent') : undefined,
+    });
     if (list.length > MAX) {
       for (const r of list.splice(0, list.length - MAX)) ids.delete(r.id);
     }
     this.messagesByChat.set(jid, list);
     for (const a of this.component(jid)) this.emitMsgs(a);
     return true;
+  }
+
+  private updateMessageStatus(
+    chatId: string,
+    messageStableId: string,
+    nextStatus: BotMessageStatus,
+  ): boolean {
+    const list = this.messagesByChat.get(chatId);
+    if (!list?.length) return false;
+    let changed = false;
+    for (const m of list) {
+      if (m.id !== messageStableId || !m.fromMe) continue;
+      if (m.status === 'read') continue;
+      if (m.status === nextStatus) continue;
+      if (m.status === 'delivered' && nextStatus === 'sent') continue;
+      m.status = nextStatus;
+      changed = true;
+    }
+    return changed;
   }
 
   private emitMsgs(chatId: string) {

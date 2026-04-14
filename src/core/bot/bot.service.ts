@@ -212,6 +212,17 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       if (e.type !== 'notify' && e.type !== 'append') return;
       this.chats.processMessagesUpsert(e.messages);
     });
+    sock.ev.on('messages.update', (updates) => {
+      this.chats.processMessagesUpdate(updates as Array<{
+        key?: {
+          id?: string | null;
+          fromMe?: boolean | null;
+          remoteJid?: string | null;
+          remoteJidAlt?: string | null;
+        };
+        update?: { status?: unknown };
+      }>);
+    });
     sock.ev.on('chats.upsert', (e) => this.chats.onChatsUpsert(e));
     sock.ev.on('chats.update', (e) => this.chats.onChatsUpdate(e));
     sock.ev.on('contacts.upsert', (c: Contact[]) => this.chats.onContactsUpsert(c));
