@@ -23,11 +23,12 @@
     "db:seed": "npx prisma db seed"
   },
   "dependencies": {
-    "@prisma/client": "^7.7.0",
     "@hapi/boom": "^10.0.1",
+    "@google/genai": "^1.50.0",
     "@nestjs/common": "^11.0.1",
     "@nestjs/core": "^11.0.1",
     "@nestjs/jwt": "^11.0.2",
+    "@prisma/client": "^7.7.0",
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/platform-socket.io": "^11.1.19",

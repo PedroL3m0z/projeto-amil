@@ -5,6 +5,7 @@ import { BotModule } from './core/bot/bot.module';
 import { PrismaModule } from './core/prisma/prisma.module';
 import { AuthModule } from './core/auth/auth.module';
 import { HealthModule } from './core/health/health.module';
+import { AiModule } from './modules/ai/ai.module';
 import { MessagesModule } from './modules/messages/messages.module';
 import { ChatsModule } from './modules/chats/chats.module';
 
@@ -16,6 +17,7 @@ const frontendDist = join(process.cwd(), 'frontend', 'dist');
     PrismaModule,
     AuthModule,
     HealthModule,
+    AiModule,
     ServeStaticModule.forRoot({
       rootPath: frontendDist,
       exclude: ['/api/{*any}'],
