@@ -46,12 +46,7 @@ export class SettingsController {
   @ApiOkResponse({
     schema: {
       example: {
-        assistantName: 'Ana · Suporte Amil',
         instructions: 'Responda com clareza e sem promessas comerciais.',
-        knowledge: 'Atendimento em horário comercial.',
-        tone: 'neutro',
-        avoidPromises: true,
-        escalateMedical: true,
       },
     },
   })

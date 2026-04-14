@@ -9,21 +9,11 @@ import {
 import { hashPassword, verifyPassword } from './password-crypto';
 
 export type AiContext = {
-  assistantName: string;
   instructions: string;
-  knowledge: string;
-  tone: 'formal' | 'neutro' | 'informal';
-  avoidPromises: boolean;
-  escalateMedical: boolean;
 };
 
 const DEFAULT_AI_CONTEXT: AiContext = {
-  assistantName: '',
   instructions: '',
-  knowledge: '',
-  tone: 'neutro',
-  avoidPromises: true,
-  escalateMedical: true,
 };
 
 @Injectable()
@@ -87,25 +77,8 @@ export class SettingsService implements OnModuleDestroy {
     try {
       const parsed = JSON.parse(raw) as Partial<AiContext>;
       return {
-        assistantName:
-          typeof parsed.assistantName === 'string' ? parsed.assistantName : '',
         instructions:
           typeof parsed.instructions === 'string' ? parsed.instructions : '',
-        knowledge: typeof parsed.knowledge === 'string' ? parsed.knowledge : '',
-        tone:
-          parsed.tone === 'formal' ||
-          parsed.tone === 'neutro' ||
-          parsed.tone === 'informal'
-            ? parsed.tone
-            : 'neutro',
-        avoidPromises:
-          typeof parsed.avoidPromises === 'boolean'
-            ? parsed.avoidPromises
-            : true,
-        escalateMedical:
-          typeof parsed.escalateMedical === 'boolean'
-            ? parsed.escalateMedical
-            : true,
       };
     } catch {
       return { ...DEFAULT_AI_CONTEXT };
@@ -116,12 +89,7 @@ export class SettingsService implements OnModuleDestroy {
     await this.redis.set(
       REDIS_KEY_AI_CONTEXT,
       JSON.stringify({
-        assistantName: next.assistantName.trim(),
         instructions: next.instructions,
-        knowledge: next.knowledge,
-        tone: next.tone,
-        avoidPromises: next.avoidPromises,
-        escalateMedical: next.escalateMedical,
       }),
     );
   }
