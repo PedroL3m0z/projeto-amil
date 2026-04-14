@@ -253,12 +253,12 @@ export function ChatsPage() {
 
   function renderOutboundStatus(status?: ChatMessage['status']) {
     if (status === 'read') {
-      return <CheckCheck className="h-3.5 w-3.5 text-sky-200" aria-label="Lida" />
+      return <CheckCheck className="h-3.5 w-3.5 text-sky-300" aria-label="Lida" />
     }
     if (status === 'delivered') {
-      return <CheckCheck className="h-3.5 w-3.5 text-primary-foreground/80" aria-label="Entregue" />
+      return <CheckCheck className="h-3.5 w-3.5 text-white/80" aria-label="Entregue" />
     }
-    return <Check className="h-3.5 w-3.5 text-primary-foreground/80" aria-label="Enviada" />
+    return <Check className="h-3.5 w-3.5 text-white/80" aria-label="Enviada" />
   }
 
   return (
@@ -349,7 +349,7 @@ export function ChatsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="flex min-h-0 flex-1 flex-col gap-0 p-0">
-            <div className="chats-thread relative min-h-0 flex-1 overflow-y-auto bg-muted/25 px-4 py-4">
+            <div className="chats-thread relative min-h-0 flex-1 overflow-y-auto bg-[#0b141a] px-4 py-4">
               {messagesLoading ? (
                 <div className="space-y-3">
                   <Skeleton className="ml-auto h-10 w-2/3" />
@@ -373,17 +373,17 @@ export function ChatsPage() {
                     >
                       <div
                         className={cn(
-                          'max-w-[min(100%,28rem)] rounded-2xl px-3 py-2 text-sm shadow-sm',
+                          'max-w-[min(100%,32rem)] rounded-2xl px-3 py-2 text-sm shadow-sm',
                           m.fromMe
-                            ? 'rounded-br-md bg-primary text-primary-foreground'
-                            : 'rounded-bl-md border bg-card text-card-foreground',
+                            ? 'rounded-br-md border border-emerald-700 bg-emerald-800 text-white'
+                            : 'rounded-bl-md border border-white/10 bg-[#202c33] text-white',
                         )}
                       >
                         <p className="whitespace-pre-wrap break-words">{m.text}</p>
                         <div
                           className={cn(
                             'mt-1 flex items-center justify-end gap-1 text-[11px] tabular-nums',
-                            m.fromMe ? 'text-primary-foreground/80' : 'text-muted-foreground',
+                            m.fromMe ? 'text-white/80' : 'text-white/60',
                           )}
                         >
                           <span>{formatMessageTime(m.at)}</span>
