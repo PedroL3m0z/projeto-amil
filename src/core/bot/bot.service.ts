@@ -1,6 +1,7 @@
 import { Boom } from '@hapi/boom';
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import makeWASocket, {
+  areJidsSameUser,
   Browsers,
   DisconnectReason,
   fetchLatestBaileysVersion,
@@ -9,9 +10,14 @@ import makeWASocket, {
 import pino from 'pino';
 import { BotAuthStore } from './bot-auth.store';
 import { BotChatState } from './bot-chat.state';
-import type { BotChatMessage, BotChatSummary, BotConnectionSnapshot } from './bot.types';
+import type {
+  BotChatMessage,
+  BotChatSummary,
+  BotConnectionSnapshot,
+  BotTypingPayload,
+} from './bot.types';
 
-export type { BotChatMessage, BotChatSummary, BotConnectionSnapshot };
+export type { BotChatMessage, BotChatSummary, BotConnectionSnapshot, BotTypingPayload };
 
 type Sock = ReturnType<typeof makeWASocket>;
 
@@ -62,6 +68,11 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
   private lastError: string | null = null;
   private readonly connListeners = new Set<(s: BotConnectionSnapshot) => void>();
 
+  private readonly typingListeners = new Set<(p: BotTypingPayload) => void>();
+  private readonly presenceSubscribed = new Set<string>();
+  private readonly typingClearTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private presSubscribeTimer: ReturnType<typeof setTimeout> | null = null;
+
   constructor(
     private readonly auth: BotAuthStore,
     private readonly chats: BotChatState,
@@ -72,8 +83,14 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleDestroy() {
+    this.clearTypingTimers();
+    if (this.presSubscribeTimer) {
+      clearTimeout(this.presSubscribeTimer);
+      this.presSubscribeTimer = null;
+    }
     this.sock?.end(undefined);
     this.sock = null;
+    this.presenceSubscribed.clear();
     this.connectionState = 'desconectado';
     this.lastError = null;
     this.updatedAtIso = new Date().toISOString();
@@ -117,6 +134,23 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     return this.chats.listMessages(chatId);
   }
 
+  /** URL da foto de perfil (preview) via Baileys; `null` se indisponível ou bot desligado. */
+  async getProfilePictureUrl(to: string): Promise<string | null> {
+    const jid = this.normalizeRecipient(to);
+    if (!jid) return null;
+    if (!this.sock || this.connectionState !== 'conectado') return null;
+    try {
+      const url = await this.sock.profilePictureUrl(jid, 'preview');
+      return url ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  markChatRead(chatId: string) {
+    this.chats.markChatRead(chatId);
+  }
+
   onChatsChanged(fn: Parameters<BotChatState['onChatsChanged']>[0]) {
     return this.chats.onChatsChanged(fn);
   }
@@ -130,6 +164,83 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     return this.chats.onChatMessagesChanged(fn);
   }
 
+  onTypingUpdate(fn: (p: BotTypingPayload) => void) {
+    this.typingListeners.add(fn);
+    return () => this.typingListeners.delete(fn);
+  }
+
+  /** Inscreve presença nos JIDs listados (necessário para receber `composing` / `recording`). */
+  schedulePresenceSubscribe(chats?: BotChatSummary[]) {
+    if (this.presSubscribeTimer) clearTimeout(this.presSubscribeTimer);
+    this.presSubscribeTimer = setTimeout(() => {
+      this.presSubscribeTimer = null;
+      void this.runPresenceSubscribe(chats);
+    }, 350);
+  }
+
+  private clearTypingTimers() {
+    for (const t of this.typingClearTimers.values()) clearTimeout(t);
+    this.typingClearTimers.clear();
+  }
+
+  private emitTyping(p: BotTypingPayload) {
+    for (const fn of this.typingListeners) {
+      try {
+        fn(p);
+      } catch {
+        /* */
+      }
+    }
+  }
+
+  private handlePresenceUpdate(ev: { id: string; presences: Record<string, { lastKnownPresence?: string }> }) {
+    const root = this.chats.canonicalContactChatId(ev.id);
+    if (!root) return;
+    const me = this.sock?.authState.creds.me?.id;
+    let active = false;
+    let kind: 'composing' | 'recording' | null = null;
+    for (const [participant, pr] of Object.entries(ev.presences ?? {})) {
+      if (me && areJidsSameUser(participant, me)) continue;
+      const t = pr?.lastKnownPresence;
+      if (t === 'composing') {
+        active = true;
+        kind = 'composing';
+      } else if (t === 'recording') {
+        active = true;
+        kind = 'recording';
+      }
+    }
+    const prev = this.typingClearTimers.get(root);
+    if (prev) clearTimeout(prev);
+    if (active) {
+      this.typingClearTimers.set(
+        root,
+        setTimeout(() => {
+          this.typingClearTimers.delete(root);
+          this.emitTyping({ chatId: root, typing: false, kind: null });
+        }, 7000),
+      );
+    } else {
+      this.typingClearTimers.delete(root);
+    }
+    this.emitTyping({ chatId: root, typing: active, kind: active ? kind : null });
+  }
+
+  private async runPresenceSubscribe(chats?: BotChatSummary[]) {
+    const sock = this.sock;
+    if (!sock || this.connectionState !== 'conectado') return;
+    const ids = chats?.length ? chats.map((c) => c.id) : this.chats.listChats().map((c) => c.id);
+    for (const id of ids) {
+      if (this.presenceSubscribed.has(id)) continue;
+      try {
+        await sock.presenceSubscribe(id);
+        this.presenceSubscribed.add(id);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
   private async connect(): Promise<void> {
     const job = this.connectQ.then(() => this.runConnect());
     this.connectQ = job.catch(() => undefined);
@@ -138,6 +249,8 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
 
   private async runConnect() {
     await this.auth.drainPendingWrites();
+    this.clearTypingTimers();
+    this.presenceSubscribed.clear();
     this.sock?.end(undefined);
     this.sock = null;
     await this.auth.drainPendingWrites();
@@ -171,6 +284,8 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         this.log.log('QR disponível — escaneie no WhatsApp → Aparelhos conectados.');
       }
       if (connection === 'close') {
+        this.clearTypingTimers();
+        this.presenceSubscribed.clear();
         const err = lastDisconnect?.error as Boom | undefined;
         const code = err?.output?.statusCode;
         const loggedOut = code === DisconnectReason.loggedOut;
@@ -198,6 +313,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         this.updatedAtIso = new Date().toISOString();
         this.emitConn();
         this.log.log('WhatsApp conectado.');
+        this.schedulePresenceSubscribe();
         void saveCreds().catch((e: unknown) =>
           this.log.error(e instanceof Error ? e.message : String(e)),
         );
@@ -226,6 +342,9 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     sock.ev.on('chats.upsert', (e) => this.chats.onChatsUpsert(e));
     sock.ev.on('chats.update', (e) => this.chats.onChatsUpdate(e));
     sock.ev.on('contacts.upsert', (c: Contact[]) => this.chats.onContactsUpsert(c));
+    sock.ev.on('presence.update', (ev: { id: string; presences: Record<string, { lastKnownPresence?: string }> }) => {
+      this.handlePresenceUpdate(ev);
+    });
   }
 
   private async reconnectSoon(ms: number) {

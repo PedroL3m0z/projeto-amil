@@ -7,7 +7,7 @@ import { Separator } from '@/components/ui/separator'
 import { useAuth } from '@/contexts/auth-context'
 import { useTheme, type ThemePreference } from '@/contexts/theme-context'
 import { cn } from '@/lib/utils'
-import { KeyRound, Monitor, Moon, Settings2, Sun } from 'lucide-react'
+import { Monitor, Moon, Settings2, Sun } from 'lucide-react'
 import { toast } from 'sonner'
 
 type SettingsSummary = {
@@ -140,8 +140,16 @@ export function ConfiguracoesPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <KeyRound className="h-5 w-5" aria-hidden />
+          <CardTitle className="flex items-center gap-2.5 text-lg">
+            <img
+              src="/gemini-color.png"
+              alt=""
+              width={48}
+              height={48}
+              decoding="async"
+              className="h-7 w-7 shrink-0 object-contain select-none"
+              aria-hidden
+            />
             Google Gemini
           </CardTitle>
           <CardDescription>

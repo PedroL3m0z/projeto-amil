@@ -10,6 +10,6 @@ export default defineConfig({
     seed: "ts-node --transpile-only src/core/prisma/seeds/seed.ts",
   },
   datasource: {
-    url: process.env["DATABASE_URL"],
+    url: process.env.DATABASE_URL as string,
   },
 });

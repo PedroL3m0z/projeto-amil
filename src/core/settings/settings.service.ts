@@ -1,4 +1,5 @@
 import { Inject, Injectable, OnModuleDestroy } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Redis } from 'ioredis';
 import {
   REDIS_KEY_AUTH_PASSWORD_HASH,
@@ -18,7 +19,10 @@ const DEFAULT_AI_CONTEXT: AiContext = {
 
 @Injectable()
 export class SettingsService implements OnModuleDestroy {
-  constructor(@Inject(SETTINGS_REDIS) private readonly redis: Redis) {}
+  constructor(
+    @Inject(SETTINGS_REDIS) private readonly redis: Redis,
+    private readonly configService: ConfigService,
+  ) {}
 
   async onModuleDestroy() {
     await this.redis.quit().catch(() => undefined);
@@ -53,7 +57,7 @@ export class SettingsService implements OnModuleDestroy {
     if (fromRedis) {
       return fromRedis;
     }
-    const fromEnv = process.env.GEMINI_API_KEY?.trim();
+    const fromEnv = this.configService.get<string>('GEMINI_API_KEY')?.trim();
     return fromEnv && fromEnv.length > 0 ? fromEnv : null;
   }
 

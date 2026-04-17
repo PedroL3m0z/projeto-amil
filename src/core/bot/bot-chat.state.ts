@@ -4,7 +4,7 @@ import type { Contact, WAMessage } from 'baileys';
 import type { BotChatMessage, BotChatSummary, BotMessageStatus } from './bot.types';
 import { BOT_AUTH_REDIS } from './bot-auth.store';
 
-type Row = Omit<BotChatSummary, 'displayName'>;
+type Row = Omit<BotChatSummary, 'displayName' | 'unreadCount'>;
 const MAX = 400;
 const UI_SNAPSHOT_KEY = 'bot:ui:snapshot:v1';
 
@@ -14,6 +14,7 @@ type UiSnapshotV1 = {
   messages: [string, BotChatMessage[]][];
   contacts: [string, string][];
   edges: [string, string][];
+  unread?: [string, number][];
 };
 
 function stableId(
@@ -83,6 +84,9 @@ export class BotChatState implements OnModuleInit, OnModuleDestroy {
     (p: { chatId: string; messages: BotChatMessage[] }) => void
   >();
 
+  /** Contagem de não lidas por JID canónico do chat (mesmo id que `listChats`). */
+  private readonly unreadByRoot = new Map<string, number>();
+
   private hydrateDone = false;
   private snapTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -128,6 +132,7 @@ export class BotChatState implements OnModuleInit, OnModuleDestroy {
         messages: [...this.messagesByChat.entries()],
         contacts: [...this.contactNames.entries()],
         edges: this.buildEdges(),
+        unread: [...this.unreadByRoot.entries()],
       };
       await this.redis.set(UI_SNAPSHOT_KEY, JSON.stringify(payload));
     } catch (e: unknown) {
@@ -167,12 +172,23 @@ export class BotChatState implements OnModuleInit, OnModuleDestroy {
         this.messagesByChat.set(id, list);
         this.messageIdsByChat.set(id, new Set(list.map((m) => m.id)));
       }
+      this.unreadByRoot.clear();
+      for (const [id, n] of p.unread ?? []) {
+        if (typeof id !== 'string' || typeof n !== 'number' || n < 1) continue;
+        this.unreadByRoot.set(id, Math.min(n, 999));
+      }
       this.log.log(`UI de chats restaurada do Redis (${String(this.chats.size)} chats).`);
     } catch (e: unknown) {
       this.log.warn(
         `Snapshot UI inválido ou ilegível: ${e instanceof Error ? e.message : String(e)}`,
       );
     }
+  }
+
+  /** JID canónico do contacto (1:1) para presença / typing; `null` se não for DM. */
+  canonicalContactChatId(jid: string): string | null {
+    if (!isContactJid(jid)) return null;
+    return this.storageKeyFor(jid);
   }
 
   listChats(): BotChatSummary[] {
@@ -193,6 +209,7 @@ export class BotChatState implements OnModuleInit, OnModuleDestroy {
           id,
           displayName: this.displayName(id, c.name),
           lastMessageAuthor: c.lastMessageAuthor ?? null,
+          unreadCount: this.unreadByRoot.get(id) ?? 0,
         };
       })
       .filter((c) => isContactJid(c.id))
@@ -201,6 +218,19 @@ export class BotChatState implements OnModuleInit, OnModuleDestroy {
         const tb = b.lastMessageAt ? Date.parse(b.lastMessageAt) : 0;
         return tb - ta;
       });
+  }
+
+  markChatRead(chatId: string) {
+    const root = this.storageKeyFor(chatId);
+    if ((this.unreadByRoot.get(root) ?? 0) === 0) return;
+    this.unreadByRoot.set(root, 0);
+    this.emitChats();
+    this.scheduleSnapshot();
+  }
+
+  private bumpUnread(root: string) {
+    const next = Math.min((this.unreadByRoot.get(root) ?? 0) + 1, 999);
+    this.unreadByRoot.set(root, next);
   }
 
   listMessages(chatId: string): BotChatMessage[] {
@@ -300,8 +330,12 @@ export class BotChatState implements OnModuleInit, OnModuleDestroy {
         stor.add(this.storageKeyFor(alt));
       }
       let any = false;
+      let inboundNew = false;
       for (const s of stor) {
-        if (this.pushMsg(s, { id: sid, at: ts, text, fromMe, status })) any = true;
+        if (this.pushMsg(s, { id: sid, at: ts, text, fromMe, status })) {
+          any = true;
+          if (!fromMe) inboundNew = true;
+        }
       }
       if (any) {
         const inboundAuthor = !fromMe
@@ -318,6 +352,9 @@ export class BotChatState implements OnModuleInit, OnModuleDestroy {
           );
         }
         dirty = true;
+      }
+      if (inboundNew) {
+        this.bumpUnread(this.storageKeyFor(jid));
       }
     }
     if (dirty) this.emitChats();
@@ -532,6 +569,11 @@ export class BotChatState implements OnModuleInit, OnModuleDestroy {
   }
 
   private mergeChats(comp: Set<string>) {
+    let unreadSum = 0;
+    for (const id of comp) {
+      unreadSum += this.unreadByRoot.get(id) ?? 0;
+      this.unreadByRoot.delete(id);
+    }
     const rows: Row[] = [];
     for (const id of comp) {
       const e = this.chats.get(id);
@@ -541,6 +583,7 @@ export class BotChatState implements OnModuleInit, OnModuleDestroy {
     const m = this.mergeRows(rows);
     for (const id of comp) this.chats.delete(id);
     this.chats.set(m.id, m);
+    this.unreadByRoot.set(m.id, Math.min(unreadSum, 999));
   }
 
   private pushMsg(jid: string, msg: BotChatMessage): boolean {

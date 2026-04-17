@@ -17,6 +17,8 @@ export type BotChatSummary = {
   lastMessageFromMe: boolean | null;
   /** Quem enviou a última mensagem (só preenchido se não for você); pushName / contacto / telefone. */
   lastMessageAuthor: string | null;
+  /** Mensagens recebidas do cliente ainda não “vistas” no painel (zerado ao abrir o chat). */
+  unreadCount: number;
 };
 
 export type BotConnectionSnapshot = {
@@ -25,4 +27,11 @@ export type BotConnectionSnapshot = {
   qr: string | null;
   updatedAt: string;
   lastError: string | null;
+};
+
+export type BotTypingPayload = {
+  chatId: string;
+  typing: boolean;
+  /** `composing` = a digitar texto; `recording` = a gravar nota de voz */
+  kind: 'composing' | 'recording' | null;
 };

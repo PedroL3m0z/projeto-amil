@@ -1,0 +1,23 @@
+# Dependências já instaladas no build com npm ci
+node_modules
+frontend/node_modules
+
+# Saídas de build (regeradas no container se necessário)
+dist
+frontend/dist
+
+# Git e artefatos locais
+.git
+.gitignore
+
+# Ambiente e caches (não devem ir para a imagem)
+.env
+.env.*
+!.env.example
+coverage
+.turbo
+.cache
+
+# Logs e OS
+*.log
+.DS_Store

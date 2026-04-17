@@ -25,10 +25,12 @@ export class ChatsGateway
   private unsubscribeChats: (() => void) | null = null;
   private unsubscribeConnection: (() => void) | null = null;
   private unsubscribeChatMessages: (() => void) | null = null;
+  private unsubscribeTyping: (() => void) | null = null;
 
   onModuleInit() {
     this.unsubscribeChats = this.chatsService.onChatsChanged((chats) => {
       this.server.emit('chats:updated', chats);
+      this.chatsService.schedulePresenceSubscribe(chats);
     });
     this.unsubscribeConnection = this.chatsService.onConnectionChanged(
       (snapshot) => {
@@ -40,16 +42,22 @@ export class ChatsGateway
         this.server.emit('chat:messages', payload);
       },
     );
+    this.unsubscribeTyping = this.chatsService.onTypingUpdate((payload) => {
+      this.server.emit('chat:typing', payload);
+    });
   }
 
   onModuleDestroy() {
     this.unsubscribeChats?.();
     this.unsubscribeConnection?.();
     this.unsubscribeChatMessages?.();
+    this.unsubscribeTyping?.();
   }
 
   handleConnection(client: Socket) {
-    client.emit('chats:list', this.chatsService.listAll());
+    const list = this.chatsService.listAll();
+    client.emit('chats:list', list);
     client.emit('bot:connection', this.chatsService.getConnectionSnapshot());
+    this.chatsService.schedulePresenceSubscribe(list);
   }
 }

@@ -3,6 +3,7 @@ import {
   BotConnectionSnapshot,
   BotService,
 } from '../../core/bot/bot.service';
+import type { BotChatSummary, BotTypingPayload } from '../../core/bot/bot.types';
 
 @Injectable()
 export class ChatsService {
@@ -14,6 +15,15 @@ export class ChatsService {
 
   listMessages(chatId: string) {
     return this.botService.listMessages(chatId);
+  }
+
+  getProfilePictureUrl(chatId: string) {
+    return this.botService.getProfilePictureUrl(chatId);
+  }
+
+  markChatRead(chatId: string) {
+    this.botService.markChatRead(chatId);
+    return { ok: true };
   }
 
   getConnectionSnapshot(): BotConnectionSnapshot {
@@ -37,5 +47,13 @@ export class ChatsService {
     listener: Parameters<BotService['onChatMessagesChanged']>[0],
   ) {
     return this.botService.onChatMessagesChanged(listener);
+  }
+
+  onTypingUpdate(listener: (p: BotTypingPayload) => void) {
+    return this.botService.onTypingUpdate(listener);
+  }
+
+  schedulePresenceSubscribe(chats?: BotChatSummary[]) {
+    this.botService.schedulePresenceSubscribe(chats);
   }
 }

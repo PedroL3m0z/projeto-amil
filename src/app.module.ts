@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { join } from 'node:path';
 import { BotModule } from './core/bot/bot.module';
@@ -13,17 +14,22 @@ const frontendDist = join(process.cwd(), 'frontend', 'dist');
 
 @Module({
   imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: ['.env'],
+    }),
     BotModule,
     PrismaModule,
     AuthModule,
     HealthModule,
     AiModule,
+    MessagesModule,
+    ChatsModule,
     ServeStaticModule.forRoot({
       rootPath: frontendDist,
       exclude: ['/api/{*any}'],
+      useGlobalPrefix: false,
     }),
-    MessagesModule,
-    ChatsModule,
   ],
 })
 export class AppModule {}

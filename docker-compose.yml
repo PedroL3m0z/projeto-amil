@@ -46,7 +46,7 @@ services:
       - '3000:3000'
     volumes:
       - ./:/app
-    command: sh -c "npm install && npm install --prefix frontend && npm run build:frontend && npm run start:dev"
+    command: sh -c "npm install && npm install --prefix frontend && npm exec prisma generate --schema=src/core/prisma/schema.prisma && npm run build:frontend && npm run start:dev"
 volumes:
   postgres_store:
   redis_data:

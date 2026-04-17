@@ -34,9 +34,10 @@ async function bootstrap() {
     .addCookieAuth('access_token')
     .build();
   const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('api/docs', app, swaggerDocument);
+  SwaggerModule.setup('docs', app, swaggerDocument);
 
   new Logger('Bootstrap').log('Swagger disponível em /api/docs');
-  await app.listen(process.env.PORT ?? 3000);
+  const port = Number(process.env.PORT) || 3000;
+  await app.listen(port, '0.0.0.0');
 }
 void bootstrap();

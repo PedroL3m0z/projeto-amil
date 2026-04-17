@@ -1,6 +1,6 @@
 .chats-layout {
-  @apply grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] gap-4;
-  @apply lg:grid-cols-[minmax(260px,320px)_1fr] lg:grid-rows-[minmax(0,1fr)];
+  @apply grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)_auto] gap-4;
+  @apply lg:grid-cols-[minmax(260px,320px)_1fr_minmax(280px,380px)] lg:grid-rows-[minmax(0,1fr)];
 }
 
 .chats-page {
@@ -10,4 +10,43 @@
 
 .chats-thread {
   scrollbar-gutter: stable;
+}
+
+.chats-typing-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.chats-typing-dots > span {
+  width: 0.35rem;
+  height: 0.35rem;
+  border-radius: 9999px;
+  background: currentColor;
+  animation: chats-typing-dot 1.15s ease-in-out infinite;
+}
+
+.chats-typing-dots > span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.chats-typing-dots > span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes chats-typing-dot {
+  0%,
+  65%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+  30% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+
+.chats-thread-typing-bubble {
+  @apply inline-flex items-center rounded-2xl rounded-bl-md border border-white/10 bg-[#202c33] px-3 py-2 text-white/70 shadow-sm;
 }

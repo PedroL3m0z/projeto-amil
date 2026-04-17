@@ -3,36 +3,50 @@ import {
   Injectable,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { GoogleGenAI } from '@google/genai';
 import { SettingsService } from '../../core/settings/settings.service';
 import { SendAiMessageDto } from './dto/send-ai-message.dto';
 
 @Injectable()
 export class AiService {
-  constructor(private readonly settingsService: SettingsService) {}
+  constructor(
+    private readonly settingsService: SettingsService,
+    private readonly configService: ConfigService,
+  ) {}
 
   async reply(payload: SendAiMessageDto) {
+    const prompt = await this.buildPrompt(payload);
+    const { text: reply, model } = await this.runGeminiTextPrompt(prompt);
+    return { reply, model };
+  }
+
+  /**
+   * Executa um prompt de texto único no Gemini (mesma config de modelo e chave que o assistente).
+   */
+  async runGeminiTextPrompt(prompt: string): Promise<{ text: string; model: string }> {
     const apiKey = await this.settingsService.getEffectiveGeminiApiKey();
     if (!apiKey) {
       throw new ServiceUnavailableException('Gemini não configurado no servidor.');
     }
 
     const ai = new GoogleGenAI({ apiKey });
-    const model = process.env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash';
-    const prompt = await this.buildPrompt(payload);
+    const model =
+      this.configService.get<string>('GEMINI_MODEL')?.trim() ||
+      'gemini-2.5-flash';
 
     try {
       const response = await ai.models.generateContent({
         model,
         contents: prompt,
       });
-      const reply = response.text?.trim();
-      if (!reply) {
+      const text = response.text?.trim();
+      if (!text) {
         throw new BadGatewayException(
           'A IA respondeu sem conteúdo de texto utilizável.',
         );
       }
-      return { reply, model };
+      return { text, model };
     } catch (error) {
       if (error instanceof BadGatewayException) {
         throw error;
