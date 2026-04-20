@@ -16,7 +16,7 @@ export class ChatSuggestionService {
   ) {}
 
   async suggestReply(chatId: string): Promise<{ suggestion: string; model: string }> {
-    const messages = this.chatsService.listMessages(chatId);
+    const messages = await this.chatsService.listMessages(chatId);
     const historyLines: string[] = [];
     for (const m of messages) {
       const role = m.fromMe ? 'Vendedor' : 'Cliente';

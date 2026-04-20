@@ -1,11 +1,23 @@
 export type BotMessageStatus = 'sent' | 'delivered' | 'read';
 
+export type BotAudioAttachment = {
+  kind: 'audio';
+  mimeType: string;
+  ptt?: boolean;
+  durationSec?: number;
+  /** `false` enquanto o áudio ainda está sendo baixado do WhatsApp e subindo pro R2. */
+  ready: boolean;
+};
+
+export type BotAttachment = BotAudioAttachment;
+
 export type BotChatMessage = {
   id: string;
   at: string;
   text: string;
   fromMe: boolean;
   status?: BotMessageStatus;
+  attachment?: BotAttachment;
 };
 
 export type BotChatSummary = {

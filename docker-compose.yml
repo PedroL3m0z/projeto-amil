@@ -23,6 +23,19 @@ services:
     volumes:
       - redis_data:/data
 
+  mongo:
+    image: mongo:7
+    container_name: projeto_amil_mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: mongo
+      MONGO_INITDB_ROOT_PASSWORD: mongo
+      MONGO_INITDB_DATABASE: projeto_amil
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo_data:/data/db
+
   app:
     build:
       context: .
@@ -33,6 +46,7 @@ services:
     depends_on:
       - postgres
       - redis
+      - mongo
     environment:
       NODE_ENV: development
       PORT: 3000
@@ -42,6 +56,13 @@ services:
       COOKIE_SECRET: dev-cookie-secret
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/projeto_amil
       REDIS_URL: redis://redis:6379
+      MONGO_URI: mongodb://mongo:mongo@mongo:27017/projeto_amil?authSource=admin
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:-}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+      R2_BUCKET: ${R2_BUCKET:-}
+      R2_PUBLIC_URL: ${R2_PUBLIC_URL:-}
+      R2_AUDIO_MAX_BYTES: ${R2_AUDIO_MAX_BYTES:-10737418240}
     ports:
       - '3000:3000'
     volumes:
@@ -50,3 +71,4 @@ services:
 volumes:
   postgres_store:
   redis_data:
+  mongo_data:

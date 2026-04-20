@@ -1,8 +1,14 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import type { Redis } from 'ioredis';
 import type { Contact, WAMessage } from 'baileys';
-import type { BotChatMessage, BotChatSummary, BotMessageStatus } from './bot.types';
+import type {
+  BotAttachment,
+  BotChatMessage,
+  BotChatSummary,
+  BotMessageStatus,
+} from './bot.types';
 import { BOT_AUTH_REDIS } from './bot-auth.store';
+import { unwrapMessage } from './message-unwrap.util';
 
 type Row = Omit<BotChatSummary, 'displayName' | 'unreadCount'>;
 const MAX = 400;
@@ -49,7 +55,7 @@ function isContactJid(jid: string): boolean {
 }
 
 function messageText(m: WAMessage): string {
-  const msg = m.message;
+  const msg = unwrapMessage(m.message);
   if (!msg) return '';
   const t =
     msg.conversation ??
@@ -58,16 +64,17 @@ function messageText(m: WAMessage): string {
     msg.videoMessage?.caption ??
     msg.documentMessage?.caption ??
     '';
-  if (t.trim()) return t.trim();
+  if (t?.trim()) return t.trim();
   if (msg.stickerMessage) return '[Figurinha]';
   if (msg.audioMessage) return '[Áudio]';
   if (msg.imageMessage) return '[Imagem]';
   if (msg.videoMessage) return '[Vídeo]';
   if (msg.documentMessage) return '[Documento]';
-  if (msg.contactMessage) return '[Contato]';
-  if (msg.locationMessage) return '[Localização]';
+  if (msg.contactMessage || msg.contactsArrayMessage) return '[Contato]';
+  if (msg.locationMessage || msg.liveLocationMessage) return '[Localização]';
   if (msg.pollCreationMessage || msg.pollUpdateMessage) return '[Enquete]';
   if (msg.reactionMessage) return '[Reação]';
+  if (msg.protocolMessage || msg.senderKeyDistributionMessage) return '';
   return '';
 }
 
@@ -303,6 +310,15 @@ export class BotChatState implements OnModuleInit, OnModuleDestroy {
   }
 
   processMessagesUpsert(messages: WAMessage[]) {
+    if (messages.length > 0) {
+      const sample = messages[0];
+      const kind = sample.message
+        ? Object.keys(unwrapMessage(sample.message) ?? {})[0] ?? 'unknown'
+        : 'empty';
+      this.log.log(
+        `messages.upsert: ${String(messages.length)} msg(s), primeira jid=${String(sample.key.remoteJid)} fromMe=${String(Boolean(sample.key.fromMe))} tipo=${kind}`,
+      );
+    }
     let dirty = false;
     for (const m of messages) {
       const jid = m.key.remoteJid;
@@ -312,15 +328,27 @@ export class BotChatState implements OnModuleInit, OnModuleDestroy {
         if (this.link(jid, alt)) dirty = true;
       }
       if (!m.message) continue;
+      const inner = unwrapMessage(m.message);
       const text = messageText(m);
       if (!text) continue;
       const fromMe = Boolean(m.key.fromMe);
       const status = fromMe ? normalizeMessageStatus((m as { status?: unknown }).status) ?? 'sent' : undefined;
       const ts =
         typeof m.messageTimestamp === 'number'
-          ? new Date(m.messageTimestamp * 1000).toISOString()
+          ? new Date(Number(m.messageTimestamp) * 1000).toISOString()
           : new Date().toISOString();
       const sid = stableId(jid, m.key.id, fromMe);
+      const audioMsg = inner?.audioMessage;
+      const attachment: BotAttachment | undefined = audioMsg
+        ? {
+            kind: 'audio',
+            mimeType: audioMsg.mimetype?.trim() || 'audio/ogg',
+            ptt: audioMsg.ptt ?? undefined,
+            durationSec:
+              typeof audioMsg.seconds === 'number' ? audioMsg.seconds : undefined,
+            ready: false,
+          }
+        : undefined;
       if (!fromMe && m.pushName) {
         this.contactNames.set(jid, m.pushName);
         this.contactNames.set(this.storageKeyFor(jid), m.pushName);
@@ -332,7 +360,7 @@ export class BotChatState implements OnModuleInit, OnModuleDestroy {
       let any = false;
       let inboundNew = false;
       for (const s of stor) {
-        if (this.pushMsg(s, { id: sid, at: ts, text, fromMe, status })) {
+        if (this.pushMsg(s, { id: sid, at: ts, text, fromMe, status, attachment })) {
           any = true;
           if (!fromMe) inboundNew = true;
         }
@@ -385,6 +413,34 @@ export class BotChatState implements OnModuleInit, OnModuleDestroy {
       }
     }
     for (const chatId of touched) this.emitMsgs(chatId);
+  }
+
+  /** JID canônico usado como chave lógica do chat (mesmo que `listChats()[i].id`). */
+  canonicalChatId(jid: string): string {
+    return this.storageKeyFor(jid);
+  }
+
+  /** Gera o mesmo `stableId` usado para identificar uma mensagem internamente. */
+  stableMessageId(jid: string, keyId: string | null | undefined, fromMe: boolean): string {
+    return stableId(jid, keyId, fromMe);
+  }
+
+  /** Marca o `attachment.ready = true` de uma mensagem (ex: após upload do áudio no R2). */
+  markAttachmentReady(chatId: string, messageStableId: string): boolean {
+    const root = this.storageKeyFor(chatId);
+    let changed = false;
+    for (const id of this.component(root)) {
+      const list = this.messagesByChat.get(id);
+      if (!list?.length) continue;
+      for (const m of list) {
+        if (m.id === messageStableId && m.attachment && !m.attachment.ready) {
+          m.attachment = { ...m.attachment, ready: true };
+          changed = true;
+        }
+      }
+    }
+    if (changed) this.emitMsgs(root);
+    return changed;
   }
 
   recordOutboundTextMessage(p: {

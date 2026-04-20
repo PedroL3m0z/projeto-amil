@@ -4,8 +4,10 @@ import makeWASocket, {
   areJidsSameUser,
   Browsers,
   DisconnectReason,
+  downloadMediaMessage,
   fetchLatestBaileysVersion,
   type Contact,
+  type WAMessage,
 } from 'baileys';
 import pino from 'pino';
 import { BotAuthStore } from './bot-auth.store';
@@ -68,6 +70,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
   private lastError: string | null = null;
   private readonly connListeners = new Set<(s: BotConnectionSnapshot) => void>();
 
+  private readonly rawMessageListeners = new Set<(messages: WAMessage[]) => void>();
   private readonly typingListeners = new Set<(p: BotTypingPayload) => void>();
   private readonly presenceSubscribed = new Set<string>();
   private readonly typingClearTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -167,6 +170,41 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
   onTypingUpdate(fn: (p: BotTypingPayload) => void) {
     this.typingListeners.add(fn);
     return () => this.typingListeners.delete(fn);
+  }
+
+  /** Assina as mensagens cruas recebidas do WhatsApp (ex: para baixar mídias). */
+  onRawMessagesUpsert(fn: (messages: WAMessage[]) => void) {
+    this.rawMessageListeners.add(fn);
+    return () => this.rawMessageListeners.delete(fn);
+  }
+
+  /** Baixa o conteúdo bruto de uma mídia (áudio, imagem, etc). Retorna `null` em falha. */
+  async downloadMessageMedia(message: WAMessage): Promise<Buffer | null> {
+    if (!message.message) return null;
+    try {
+      const buf = await downloadMediaMessage(message, 'buffer', {});
+      return Buffer.isBuffer(buf) ? buf : Buffer.from(buf as Uint8Array);
+    } catch (err) {
+      this.log.warn(
+        `Falha ao baixar mídia: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return null;
+    }
+  }
+
+  /** Resolve o JID canônico (igual ao `id` retornado em `listChats`). */
+  canonicalChatId(jid: string): string {
+    return this.chats.canonicalChatId(jid);
+  }
+
+  /** Gera o mesmo `stableId` usado internamente para identificar uma mensagem. */
+  stableMessageId(jid: string, keyId: string | null | undefined, fromMe: boolean): string {
+    return this.chats.stableMessageId(jid, keyId, fromMe);
+  }
+
+  /** Marca um `attachment` como pronto (ex: após upload concluir) e re-emite o chat. */
+  markAttachmentReady(chatId: string, messageStableId: string): boolean {
+    return this.chats.markAttachmentReady(chatId, messageStableId);
   }
 
   /** Inscreve presença nos JIDs listados (necessário para receber `composing` / `recording`). */
@@ -327,6 +365,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     sock.ev.on('messages.upsert', (e) => {
       if (e.type !== 'notify' && e.type !== 'append') return;
       this.chats.processMessagesUpsert(e.messages);
+      this.emitRawMessages(e.messages);
     });
     sock.ev.on('messages.update', (updates) => {
       this.chats.processMessagesUpdate(updates as Array<{
@@ -377,6 +416,19 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         fn(s);
       } catch {
         /* */
+      }
+    }
+  }
+
+  private emitRawMessages(messages: WAMessage[]) {
+    if (messages.length === 0) return;
+    for (const fn of this.rawMessageListeners) {
+      try {
+        fn(messages);
+      } catch (err) {
+        this.log.warn(
+          `Listener de raw messages falhou: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     }
   }

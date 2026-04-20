@@ -24,7 +24,6 @@ export class ChatsGateway
 
   private unsubscribeChats: (() => void) | null = null;
   private unsubscribeConnection: (() => void) | null = null;
-  private unsubscribeChatMessages: (() => void) | null = null;
   private unsubscribeTyping: (() => void) | null = null;
 
   onModuleInit() {
@@ -37,25 +36,33 @@ export class ChatsGateway
         this.server.emit('bot:connection', snapshot);
       },
     );
-    this.unsubscribeChatMessages = this.chatsService.onChatMessagesChanged(
-      (payload) => {
-        this.server.emit('chat:messages', payload);
-      },
-    );
     this.unsubscribeTyping = this.chatsService.onTypingUpdate((payload) => {
       this.server.emit('chat:typing', payload);
     });
   }
 
+  /**
+   * Emite o snapshot atualizado de mensagens de um chat. É chamado pelo
+   * `ChatsSyncService` **depois** de persistir no Mongo, garantindo que a
+   * resposta inclua `audioUrl` presigned e demais metadados de attachments.
+   */
+  async broadcastChatMessages(chatId: string): Promise<void> {
+    try {
+      const messages = await this.chatsService.listMessages(chatId);
+      this.server.emit('chat:messages', { chatId, messages });
+    } catch {
+      /* ignore: falha transitória na leitura do Mongo */
+    }
+  }
+
   onModuleDestroy() {
     this.unsubscribeChats?.();
     this.unsubscribeConnection?.();
-    this.unsubscribeChatMessages?.();
     this.unsubscribeTyping?.();
   }
 
-  handleConnection(client: Socket) {
-    const list = this.chatsService.listAll();
+  async handleConnection(client: Socket) {
+    const list = await this.chatsService.listAll();
     client.emit('chats:list', list);
     client.emit('bot:connection', this.chatsService.getConnectionSnapshot());
     this.chatsService.schedulePresenceSubscribe(list);

@@ -8,7 +8,18 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAuth } from '@/contexts/auth-context'
 import { cn } from '@/lib/utils'
-import { AlertCircle, Check, CheckCheck, CircleCheck, Send, Sparkles, User } from 'lucide-react'
+import {
+  AlertCircle,
+  Check,
+  CheckCheck,
+  CircleCheck,
+  Mic,
+  Pause,
+  Play,
+  Send,
+  Sparkles,
+  User,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import './chats-page.css'
 
@@ -24,12 +35,22 @@ type ChatItem = {
   unreadCount?: number
 }
 
+type ChatAudioAttachment = {
+  kind: 'audio'
+  mimeType: string
+  ptt?: boolean
+  durationSec?: number
+  ready: boolean
+  audioUrl: string | null
+}
+
 type ChatMessage = {
   id: string
   at: string
   text: string
   fromMe: boolean
   status?: 'sent' | 'delivered' | 'read'
+  attachment?: ChatAudioAttachment
 }
 
 type ChatTypingPayload = {
@@ -79,6 +100,220 @@ function phoneFromWhatsAppJid(jid: string): string | null {
 
 function chatActivitySig(c: ChatItem): string {
   return `${c.lastMessageAt ?? ''}|${c.lastMessage ?? ''}|${String(c.lastMessageFromMe)}`
+}
+
+function formatTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return '0:00'
+  const total = Math.floor(seconds)
+  const mm = Math.floor(total / 60)
+  const ss = total % 60
+  return `${String(mm)}:${String(ss).padStart(2, '0')}`
+}
+
+/**
+ * Bars estáticas estilo "waveform" do WhatsApp. Geramos um padrão
+ * determinístico a partir do id da mensagem para manter entre renders.
+ */
+function useWaveform(seed: string, bars = 32): number[] {
+  return useMemo(() => {
+    const out: number[] = []
+    let h = 0
+    for (let i = 0; i < seed.length; i += 1) {
+      h = (h * 31 + seed.charCodeAt(i)) >>> 0
+    }
+    for (let i = 0; i < bars; i += 1) {
+      h = (h * 1664525 + 1013904223) >>> 0
+      const n = (h % 100) / 100
+      out.push(0.25 + n * 0.75)
+    }
+    return out
+  }, [seed, bars])
+}
+
+function AudioAttachment({
+  messageId,
+  attachment,
+  fromMe,
+}: {
+  messageId: string
+  attachment: ChatAudioAttachment
+  fromMe: boolean
+}) {
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+  const progressRef = useRef<HTMLDivElement | null>(null)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [duration, setDuration] = useState<number | null>(
+    attachment.durationSec && attachment.durationSec > 0 ? attachment.durationSec : null,
+  )
+  const [isBuffering, setIsBuffering] = useState(false)
+  const [rate, setRate] = useState<1 | 1.5 | 2>(1)
+  const waveform = useWaveform(messageId)
+
+  const label = attachment.ptt ? 'Mensagem de voz' : 'Áudio'
+  const ready = attachment.ready && Boolean(attachment.audioUrl)
+  const progressPct =
+    duration && duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0
+
+  useEffect(() => {
+    const el = audioRef.current
+    if (!el) return
+
+    const onTime = () => setCurrentTime(el.currentTime)
+    const onLoaded = () => {
+      if (Number.isFinite(el.duration) && el.duration > 0) setDuration(el.duration)
+    }
+    const onPlay = () => setIsPlaying(true)
+    const onPause = () => setIsPlaying(false)
+    const onEnd = () => {
+      setIsPlaying(false)
+      setCurrentTime(0)
+    }
+    const onWaiting = () => setIsBuffering(true)
+    const onPlaying = () => setIsBuffering(false)
+
+    el.addEventListener('timeupdate', onTime)
+    el.addEventListener('loadedmetadata', onLoaded)
+    el.addEventListener('durationchange', onLoaded)
+    el.addEventListener('play', onPlay)
+    el.addEventListener('pause', onPause)
+    el.addEventListener('ended', onEnd)
+    el.addEventListener('waiting', onWaiting)
+    el.addEventListener('playing', onPlaying)
+    return () => {
+      el.removeEventListener('timeupdate', onTime)
+      el.removeEventListener('loadedmetadata', onLoaded)
+      el.removeEventListener('durationchange', onLoaded)
+      el.removeEventListener('play', onPlay)
+      el.removeEventListener('pause', onPause)
+      el.removeEventListener('ended', onEnd)
+      el.removeEventListener('waiting', onWaiting)
+      el.removeEventListener('playing', onPlaying)
+    }
+  }, [attachment.audioUrl])
+
+  const togglePlay = () => {
+    const el = audioRef.current
+    if (!el || !ready) return
+    if (el.paused) void el.play().catch(() => undefined)
+    else el.pause()
+  }
+
+  const seekFromEvent = (clientX: number) => {
+    const el = audioRef.current
+    const bar = progressRef.current
+    if (!el || !bar || !duration || duration <= 0) return
+    const rect = bar.getBoundingClientRect()
+    const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width))
+    el.currentTime = ratio * duration
+    setCurrentTime(el.currentTime)
+  }
+
+  const cycleRate = () => {
+    const el = audioRef.current
+    const next: 1 | 1.5 | 2 = rate === 1 ? 1.5 : rate === 1.5 ? 2 : 1
+    setRate(next)
+    if (el) el.playbackRate = next
+  }
+
+  const displayTime = isPlaying || currentTime > 0 ? currentTime : (duration ?? 0)
+  const activeBar = Math.floor((progressPct / 100) * waveform.length)
+
+  return (
+    <div
+      className={cn(
+        'flex w-[240px] max-w-full items-center gap-2',
+        !ready && 'opacity-80',
+      )}
+    >
+      {ready ? (
+        <audio
+          ref={audioRef}
+          src={attachment.audioUrl ?? undefined}
+          preload="metadata"
+        >
+          <track kind="captions" />
+        </audio>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={togglePlay}
+        disabled={!ready}
+        aria-label={isPlaying ? 'Pausar áudio' : 'Reproduzir áudio'}
+        className={cn(
+          'flex size-8 shrink-0 items-center justify-center rounded-full transition',
+          fromMe
+            ? 'bg-white/15 hover:bg-white/25 disabled:bg-white/10'
+            : 'bg-white/15 hover:bg-white/25 disabled:bg-white/10',
+          !ready && 'cursor-not-allowed',
+        )}
+      >
+        {!ready || isBuffering ? (
+          <span className="size-3 animate-spin rounded-full border-2 border-current border-t-transparent text-white" />
+        ) : isPlaying ? (
+          <Pause className="size-4 fill-white text-white" />
+        ) : (
+          <Play className="ml-0.5 size-4 fill-white text-white" />
+        )}
+      </button>
+
+      <div className="flex min-w-0 flex-1 flex-col justify-center">
+        <div
+          ref={progressRef}
+          role="slider"
+          aria-label="Progresso do áudio"
+          aria-valuemin={0}
+          aria-valuemax={duration ?? 0}
+          aria-valuenow={currentTime}
+          tabIndex={ready ? 0 : -1}
+          onClick={(e) => seekFromEvent(e.clientX)}
+          onKeyDown={(e) => {
+            if (!audioRef.current || !duration) return
+            if (e.key === 'ArrowRight') {
+              audioRef.current.currentTime = Math.min(duration, currentTime + 3)
+            } else if (e.key === 'ArrowLeft') {
+              audioRef.current.currentTime = Math.max(0, currentTime - 3)
+            }
+          }}
+          className="flex h-6 cursor-pointer items-center gap-[2px]"
+        >
+          {waveform.map((h, i) => (
+            <span
+              key={i}
+              className={cn(
+                'flex-1 rounded-full transition-colors',
+                i < activeBar ? 'bg-white' : 'bg-white/35',
+              )}
+              style={{ height: `${String(Math.round(h * 100))}%` }}
+            />
+          ))}
+        </div>
+
+        <div className="mt-0.5 flex items-center justify-between gap-2 text-[10px] text-white/70">
+          <span className="inline-flex items-center gap-1">
+            {attachment.ptt ? <Mic className="size-2.5" /> : null}
+            <span className="tabular-nums">
+              {ready
+                ? `${formatTime(displayTime)}${duration ? ` / ${formatTime(duration)}` : ''}`
+                : `${label} — preparando…`}
+            </span>
+          </span>
+
+          {ready ? (
+            <button
+              type="button"
+              onClick={cycleRate}
+              aria-label="Alterar velocidade de reprodução"
+              className="shrink-0 rounded-full bg-white/10 px-1.5 py-0 text-[10px] font-semibold leading-4 tabular-nums text-white transition hover:bg-white/20"
+            >
+              {rate === 1 ? '1x' : rate === 1.5 ? '1.5x' : '2x'}
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function TypingDots({ className }: { className?: string }) {
@@ -583,8 +818,8 @@ export function ChatsPage() {
               {!messagesLoading && selectedChat && messages.length === 0 ? (
                 <p className="text-center text-sm text-muted-foreground">
                   O bot só mostra o que aconteceu com ele ligado: não é o histórico completo do WhatsApp no celular.
-                  Troque uma mensagem (texto ou mídia) neste chat com o bot conectado; figurinhas e áudios aparecem como
-                  [Figurinha], [Áudio], etc.
+                  Troque uma mensagem (texto, áudio ou mídia) neste chat com o bot conectado. Áudios aparecem com
+                  player embutido; figurinhas, imagens e documentos aparecem como [Figurinha], [Imagem], etc.
                 </p>
               ) : null}
               {!messagesLoading ? (
@@ -596,13 +831,22 @@ export function ChatsPage() {
                     >
                       <div
                         className={cn(
-                          'max-w-[min(100%,32rem)] rounded-2xl px-3 py-2 text-sm shadow-sm',
+                          'max-w-[min(100%,32rem)] rounded-2xl text-sm shadow-sm',
+                          m.attachment?.kind === 'audio' ? 'px-2 py-1.5' : 'px-3 py-2',
                           m.fromMe
                             ? 'rounded-br-md border border-emerald-700 bg-emerald-800 text-white'
                             : 'rounded-bl-md border border-white/10 bg-[#202c33] text-white',
                         )}
                       >
-                        <p className="whitespace-pre-wrap break-words">{m.text}</p>
+                        {m.attachment?.kind === 'audio' ? (
+                          <AudioAttachment
+                            messageId={m.id}
+                            attachment={m.attachment}
+                            fromMe={m.fromMe}
+                          />
+                        ) : (
+                          <p className="whitespace-pre-wrap break-words">{m.text}</p>
+                        )}
                         <div
                           className={cn(
                             'mt-1 flex items-center justify-end gap-1 text-[11px] tabular-nums',
