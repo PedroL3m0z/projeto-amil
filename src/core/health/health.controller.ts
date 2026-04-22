@@ -20,6 +20,7 @@ export class HealthController {
         dependencies: {
           postgres: { up: true, host: 'localhost', port: 5432 },
           redis: { up: true, host: 'localhost', port: 6379 },
+          r2: { configured: true, ok: true },
         },
       },
     },

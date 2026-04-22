@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Socket } from 'node:net';
+import { R2Service } from '../r2/r2.service';
 
 type DependencyStatus = {
   up: boolean;
@@ -10,13 +11,16 @@ type DependencyStatus = {
 
 @Injectable()
 export class HealthService {
+  constructor(private readonly r2: R2Service) {}
+
   async check() {
     const postgresTarget = this.resolvePostgresTarget();
     const redisTarget = this.resolveRedisTarget();
 
-    const [postgres, redis] = await Promise.all([
+    const [postgres, redis, r2] = await Promise.all([
       this.checkTcpDependency(postgresTarget.host, postgresTarget.port),
       this.checkTcpDependency(redisTarget.host, redisTarget.port),
+      this.checkR2(),
     ]);
 
     const up = postgres.up && redis.up;
@@ -26,8 +30,30 @@ export class HealthService {
       dependencies: {
         postgres,
         redis,
+        r2,
       },
     };
+  }
+
+  /** Lista até 1 objeto no bucket (confirma credenciais e endpoint R2). */
+  private async checkR2(): Promise<{
+    ok: boolean;
+    configured: boolean;
+    error?: string;
+  }> {
+    if (!this.r2.isEnabled()) {
+      return { configured: false, ok: true };
+    }
+    try {
+      await this.r2.listObjects(undefined, 1);
+      return { configured: true, ok: true };
+    } catch (e) {
+      return {
+        configured: true,
+        ok: false,
+        error: e instanceof Error ? e.message : String(e),
+      };
+    }
   }
 
   private async checkTcpDependency(

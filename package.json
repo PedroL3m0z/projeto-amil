@@ -20,7 +20,11 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "db:import:json": "bash scripts/import-prisma-json.sh",
-    "db:seed": "npx prisma db seed"
+    "db:seed": "npx prisma db seed",
+    "chats:clear": "node scripts/clear-chats.mjs",
+    "chats:clear:docker": "docker compose exec app npm run chats:clear",
+    "r2:test": "node scripts/test-r2.mjs",
+    "r2:test:docker": "docker compose exec app npm run r2:test"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1032.0",

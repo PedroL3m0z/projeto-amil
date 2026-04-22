@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import {
@@ -12,6 +12,8 @@ import type {
   BotTypingPayload,
 } from '../../core/bot/bot.types';
 import { R2Service } from '../../core/r2/r2.service';
+import { AiService } from '../ai/ai.service';
+import { CHAT_AUDIO_PLACEHOLDER } from './chat-audio.constants';
 import { Chat, ChatDocument } from './schemas/chat.schema';
 import { Message, MessageDocument } from './schemas/message.schema';
 
@@ -32,9 +34,12 @@ export type ChatMessageResponse = Omit<BotChatMessage, 'attachment'> & {
 
 @Injectable()
 export class ChatsService {
+  private readonly log = new Logger(ChatsService.name);
+
   constructor(
     private readonly botService: BotService,
     private readonly r2: R2Service,
+    private readonly aiService: AiService,
     @InjectModel(Chat.name) private readonly chatModel: Model<ChatDocument>,
     @InjectModel(Message.name)
     private readonly messageModel: Model<MessageDocument>,
@@ -142,5 +147,63 @@ export class ChatsService {
 
   schedulePresenceSubscribe(chats?: BotChatSummary[]) {
     this.botService.schedulePresenceSubscribe(chats);
+  }
+
+  /**
+   * Garante que mensagens ainda com placeholder `[Áudio]` e ficheiro no R2
+   * fiquem com `[Áudio Transcrito] …` no Mongo e no estado do bot (ex.: antes de sugerir resposta).
+   */
+  async transcribePendingAudiosForChat(chatId: string): Promise<void> {
+    if (!this.r2.isEnabled()) {
+      this.log.debug('R2 desligado; não é possível transcrever áudios pendentes a partir do storage.');
+      return;
+    }
+
+    const canonical = this.botService.canonicalChatId(chatId);
+    const chatIds = [...new Set([canonical, ...this.botService.linkedDirectChatIds(chatId)])];
+
+    const candidates = await this.messageModel
+      .find({
+        chatId: { $in: chatIds },
+        fromMe: false,
+        $or: [
+          { text: CHAT_AUDIO_PLACEHOLDER },
+          { text: { $regex: /^\s*\[Áudio\]\s*$/ } },
+        ],
+        'attachment.storageKey': { $exists: true, $nin: [null, ''] },
+      })
+      .lean()
+      .exec();
+
+    if (candidates.length === 0) {
+      this.log.debug(
+        `Nenhuma mensagem [Áudio] pendente com storageKey para chatIds=${chatIds.join(', ')}`,
+      );
+      return;
+    }
+
+    for (const doc of candidates) {
+      const key = doc.attachment?.storageKey;
+      const mime = doc.attachment?.mimeType?.trim() || 'audio/ogg';
+      if (!key) continue;
+
+      const buf = await this.r2.getObjectBuffer(key);
+      if (!buf?.length) {
+        this.log.warn(`R2: objeto vazio ou inexistente para key=${key}`);
+        continue;
+      }
+
+      const text = await this.aiService.transcribeAudio(buf, mime);
+      if (!text) {
+        this.log.warn(`Transcrição devolveu vazio para messageId=${doc.messageId} key=${key}`);
+        continue;
+      }
+
+      const newText = `[Áudio Transcrito] ${text}`;
+      await this.messageModel
+        .updateOne({ chatId: doc.chatId, messageId: doc.messageId }, { $set: { text: newText } })
+        .exec();
+      this.botService.updateChatMessageText(canonical, doc.messageId, newText);
+    }
   }
 }

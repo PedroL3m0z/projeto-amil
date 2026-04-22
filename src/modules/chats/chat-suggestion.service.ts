@@ -16,6 +16,7 @@ export class ChatSuggestionService {
   ) {}
 
   async suggestReply(chatId: string): Promise<{ suggestion: string; model: string }> {
+    await this.chatsService.transcribePendingAudiosForChat(chatId);
     const messages = await this.chatsService.listMessages(chatId);
     const historyLines: string[] = [];
     for (const m of messages) {

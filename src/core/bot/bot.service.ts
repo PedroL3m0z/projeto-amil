@@ -197,6 +197,16 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     return this.chats.canonicalChatId(jid);
   }
 
+  /** Pasta no R2 para mídia: `telefone@s.whatsapp.net__lid@lid` quando o par existe; senão um só JID. */
+  mediaStorageFolderId(jid: string): string {
+    return this.chats.mediaStorageFolderId(jid);
+  }
+
+  /** JIDs alternativos do mesmo contacto (ex.: LID + número) para cruzar dados no Mongo. */
+  linkedDirectChatIds(jid: string): string[] {
+    return this.chats.linkedDirectChatIds(jid);
+  }
+
   /** Gera o mesmo `stableId` usado internamente para identificar uma mensagem. */
   stableMessageId(jid: string, keyId: string | null | undefined, fromMe: boolean): string {
     return this.chats.stableMessageId(jid, keyId, fromMe);
@@ -205,6 +215,11 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
   /** Marca um `attachment` como pronto (ex: após upload concluir) e re-emite o chat. */
   markAttachmentReady(chatId: string, messageStableId: string): boolean {
     return this.chats.markAttachmentReady(chatId, messageStableId);
+  }
+
+  /** Atualiza o texto mostrado de uma mensagem (ex.: transcrição de áudio). */
+  updateChatMessageText(chatId: string, messageStableId: string, text: string): boolean {
+    return this.chats.replaceMessageText(chatId, messageStableId, text);
   }
 
   /** Inscreve presença nos JIDs listados (necessário para receber `composing` / `recording`). */

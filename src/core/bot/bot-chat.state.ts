@@ -420,6 +420,43 @@ export class BotChatState implements OnModuleInit, OnModuleDestroy {
     return this.storageKeyFor(jid);
   }
 
+  /**
+   * Segmento de pasta no object storage (R2): no mesmo contacto, prefere o JID de telefone
+   * (`@s.whatsapp.net`) quando existir ligação com `@lid`, para não espalhar ficheiros só por LID.
+   */
+  /**
+   * Pasta no R2 sob `whatsapp/audio/`: se LID e telefone estiverem ligados no mesmo contacto,
+   * usa os dois no nome (`numero@s.whatsapp.net__lid@lid`); senão só o que existir.
+   */
+  mediaStorageFolderId(jid: string): string {
+    const nodes = this.component(jid);
+    const dm = [...nodes].filter(
+      (n) => !n.endsWith('@g.us') && !n.endsWith('@newsletter'),
+    );
+    const phones = dm.filter((n) => n.endsWith('@s.whatsapp.net')).sort();
+    const lids = dm.filter((n) => n.endsWith('@lid')).sort();
+    const phone = phones[0];
+    const lid = lids[0];
+    if (phone && lid) return `${phone}__${lid}`;
+    if (phone) return phone;
+    if (lid) return lid;
+    return this.pick(nodes);
+  }
+
+  /** JIDs de DM no mesmo contacto (LID ↔ telefone ligados) — útil para consultas Mongo com `$in`. */
+  linkedDirectChatIds(jid: string): string[] {
+    const nodes = this.component(jid);
+    const dm = [...nodes].filter(
+      (n) => !n.endsWith('@g.us') && !n.endsWith('@newsletter'),
+    );
+    const out = dm.filter(
+      (n) => n.endsWith('@s.whatsapp.net') || n.endsWith('@lid'),
+    );
+    if (out.length > 0) return [...new Set(out)];
+    const root = this.storageKeyFor(jid);
+    return [root];
+  }
+
   /** Gera o mesmo `stableId` usado para identificar uma mensagem internamente. */
   stableMessageId(jid: string, keyId: string | null | undefined, fromMe: boolean): string {
     return stableId(jid, keyId, fromMe);
@@ -441,6 +478,39 @@ export class BotChatState implements OnModuleInit, OnModuleDestroy {
     }
     if (changed) this.emitMsgs(root);
     return changed;
+  }
+
+  /** Atualiza o texto de uma mensagem já presente (ex.: após transcrever áudio). */
+  replaceMessageText(chatId: string, messageStableId: string, newText: string): boolean {
+    const root = this.storageKeyFor(chatId);
+    let changed = false;
+    let msgAt: string | null = null;
+    let msgFromMe = false;
+    for (const id of this.component(root)) {
+      const list = this.messagesByChat.get(id);
+      if (!list?.length) continue;
+      for (const m of list) {
+        if (m.id === messageStableId && m.text !== newText) {
+          m.text = newText;
+          changed = true;
+          msgAt = m.at;
+          msgFromMe = m.fromMe;
+        }
+      }
+    }
+    if (!changed) return false;
+
+    const merged = this.listMessages(root);
+    const last = merged[merged.length - 1];
+    if (last?.id === messageStableId && msgAt) {
+      const author = msgFromMe
+        ? null
+        : this.chats.get(root)?.lastMessageAuthor ?? this.peerLabel(root);
+      this.upsert(root, newText, msgAt, null, msgFromMe, author);
+      this.emitChats();
+    }
+    this.emitMsgs(root);
+    return true;
   }
 
   recordOutboundTextMessage(p: {

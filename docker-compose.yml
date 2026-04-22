@@ -43,17 +43,23 @@ services:
     container_name: projeto_amil_app
     restart: unless-stopped
     working_dir: /app
+    env_file:
+      - .env
     depends_on:
       - postgres
       - redis
       - mongo
     environment:
-      NODE_ENV: development
-      PORT: 3000
-      JWT_SECRET: dev-jwt-secret
-      AUTH_USERNAME: admin
-      AUTH_PASSWORD: admin123
-      COOKIE_SECRET: dev-cookie-secret
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: ${PORT:-3000}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret}
+      AUTH_USERNAME: ${AUTH_USERNAME:-admin}
+      AUTH_PASSWORD: ${AUTH_PASSWORD:-admin123}
+      COOKIE_SECRET: ${COOKIE_SECRET:-dev-cookie-secret}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      GEMINI_TRANSCRIPTION_MODEL: ${GEMINI_TRANSCRIPTION_MODEL:-gemini-1.5-flash-8b}
+      # Sobrescrevem host do .env (localhost) — na rede Docker usamos nomes dos serviços
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/projeto_amil
       REDIS_URL: redis://redis:6379
       MONGO_URI: mongodb://mongo:mongo@mongo:27017/projeto_amil?authSource=admin
