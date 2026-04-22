@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAuth } from '@/contexts/auth-context'
-import { AlertCircle, CheckCircle2, Loader2, Smartphone } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Loader2, QrCode, Smartphone } from 'lucide-react'
 import { toast } from 'sonner'
 
 type BotConnectionResponse = {
@@ -200,7 +200,7 @@ export function SessaoPage() {
     state === 'conectado' ? 'success' : state === 'conectando' ? 'secondary' : 'outline'
 
   return (
-    <div className="sessao-page mx-auto w-full max-w-5xl space-y-8 pb-2">
+    <div className="sessao-page w-full space-y-8 pb-2">
       <header className="flex flex-col gap-2 border-b border-border pb-6 sm:flex-row sm:items-end sm:justify-between">
         <div className="space-y-1">
           <div className="flex items-center gap-2 text-primary">
@@ -221,7 +221,7 @@ export function SessaoPage() {
         </div>
       </header>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-start">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start">
         <Card className="overflow-hidden border-border/80 shadow-sm">
           <CardHeader className="space-y-3 bg-muted/30 pb-4">
             <div className="flex flex-wrap items-center gap-2">
@@ -293,37 +293,80 @@ export function SessaoPage() {
         </Card>
 
         <Card className="flex flex-col border-border/80 shadow-sm lg:sticky lg:top-4">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Pareamento</CardTitle>
-            <CardDescription className="text-xs leading-relaxed">
-              No telefone: WhatsApp → <strong className="text-foreground">Mais opções</strong> (⋮ ou ⚙) →{' '}
-              <strong className="text-foreground">Aparelhos conectados</strong> →{' '}
-              <strong className="text-foreground">Conectar um aparelho</strong>.
+          <CardHeader className="space-y-2 pb-4">
+            <div className="flex items-center gap-2 text-primary">
+              <QrCode className="h-4 w-4" aria-hidden />
+              <span className="text-xs font-semibold uppercase tracking-wider">Pareamento</span>
+            </div>
+            <CardTitle className="text-lg leading-tight">Conecte o seu WhatsApp</CardTitle>
+            <CardDescription className="text-sm leading-relaxed">
+              Escaneie o QR ao lado no seu aparelho para autenticar a sessão.
             </CardDescription>
           </CardHeader>
-          <CardContent className="flex flex-col items-center justify-center gap-4 pb-6 pt-0">
-            {waLoading && !waStatus ? (
-              <Skeleton className="h-[256px] w-[256px] rounded-xl" />
-            ) : null}
-            {!waLoading && !waError && waQrDataUrl ? (
-              <div className="rounded-xl border bg-white p-3 shadow-inner dark:bg-zinc-950">
-                <img
-                  className="h-[256px] w-[256px]"
-                  src={waQrDataUrl}
-                  alt="Código QR para parear o WhatsApp"
-                />
-              </div>
-            ) : null}
-            {!waLoading && !waError && !waQrDataUrl && !waStatus?.connected ? (
-              <p className="text-center text-sm text-muted-foreground">
-                Aguardando geração do QR…
-              </p>
-            ) : null}
-            {!waLoading && !waError && waStatus?.connected ? (
-              <p className="text-center text-sm text-muted-foreground">
-                Nenhum QR necessário enquanto a sessão estiver ativa.
-              </p>
-            ) : null}
+          <CardContent className="flex flex-col gap-5 pb-6 pt-0">
+            <ol className="space-y-2.5 rounded-lg border border-border/60 bg-muted/30 p-4 text-sm">
+              {[
+                <>Abra o <strong className="text-foreground">WhatsApp</strong> no telefone.</>,
+                <>
+                  Toque em <strong className="text-foreground">Mais opções</strong>
+                  <span className="text-muted-foreground"> (⋮ ou ⚙)</span>.
+                </>,
+                <>
+                  Vá em{' '}
+                  <strong className="text-foreground">Aparelhos conectados</strong>.
+                </>,
+                <>
+                  Escolha{' '}
+                  <strong className="text-foreground">Conectar um aparelho</strong> e
+                  escaneie o QR.
+                </>,
+              ].map((step, i) => (
+                <li
+                  key={i}
+                  className="flex items-start gap-3 leading-relaxed text-muted-foreground"
+                >
+                  <span
+                    aria-hidden
+                    className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[11px] font-semibold text-primary"
+                  >
+                    {i + 1}
+                  </span>
+                  <span>{step}</span>
+                </li>
+              ))}
+            </ol>
+
+            <div className="flex flex-col items-center justify-center gap-3">
+              {waLoading && !waStatus ? (
+                <Skeleton className="h-[256px] w-[256px] rounded-xl" />
+              ) : null}
+              {!waLoading && !waError && waQrDataUrl ? (
+                <div className="rounded-xl border bg-white p-3 shadow-inner dark:bg-zinc-950">
+                  <img
+                    className="h-[256px] w-[256px]"
+                    src={waQrDataUrl}
+                    alt="Código QR para parear o WhatsApp"
+                  />
+                </div>
+              ) : null}
+              {!waLoading && !waError && !waQrDataUrl && !waStatus?.connected ? (
+                <div className="flex h-[256px] w-[256px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-muted/20 text-center">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" aria-hidden />
+                  <p className="text-sm text-muted-foreground">Aguardando QR…</p>
+                </div>
+              ) : null}
+              {!waLoading && !waError && waStatus?.connected ? (
+                <div className="flex h-[256px] w-[256px] flex-col items-center justify-center gap-2 rounded-xl border border-emerald-500/25 bg-emerald-500/5 text-center">
+                  <CheckCircle2 className="h-7 w-7 text-emerald-600" aria-hidden />
+                  <p className="px-4 text-sm font-medium text-emerald-900 dark:text-emerald-100">
+                    Sessão ativa
+                  </p>
+                  <p className="px-5 text-xs text-muted-foreground">
+                    Nenhum QR necessário enquanto a sessão estiver conectada.
+                  </p>
+                </div>
+              ) : null}
+            </div>
           </CardContent>
         </Card>
       </div>
