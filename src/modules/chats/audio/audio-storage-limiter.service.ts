@@ -5,14 +5,10 @@ import {
   OnModuleDestroy,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { InjectModel } from '@nestjs/mongoose';
 import { Mutex } from 'async-mutex';
-import { Model } from 'mongoose';
-import { R2Service } from '../../core/r2/r2.service';
-import { Message, MessageDocument } from './schemas/message.schema';
-
-/** Prefixo sob o qual os áudios do WhatsApp são armazenados no bucket R2. */
-const AUDIO_PREFIX = 'whatsapp/audio/';
+import { R2Service } from '../../../core/r2/r2.service';
+import { MessageRepository } from '../repositories/message.repository';
+import { R2_WHATSAPP_AUDIO_PREFIX } from './chat-audio.constants';
 
 /** Padrão: 10 GiB = 10 * 1024^3 bytes. */
 const DEFAULT_MAX_BYTES = 10 * 1024 * 1024 * 1024;
@@ -36,13 +32,14 @@ export class AudioStorageLimiterService
   constructor(
     private readonly config: ConfigService,
     private readonly r2: R2Service,
-    @InjectModel(Message.name)
-    private readonly messageModel: Model<MessageDocument>,
+    private readonly messageRepo: MessageRepository,
   ) {
     const raw = this.config.get<string>('R2_AUDIO_MAX_BYTES')?.trim();
     const parsed = raw ? Number(raw) : Number.NaN;
     this.maxBytes =
-      Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : DEFAULT_MAX_BYTES;
+      Number.isFinite(parsed) && parsed > 0
+        ? Math.floor(parsed)
+        : DEFAULT_MAX_BYTES;
     this.log.log(
       `Quota de áudios no R2: ${this.formatBytes(this.maxBytes)} (corte alvo: ${this.formatBytes(
         Math.floor(this.maxBytes * TARGET_RATIO),
@@ -97,7 +94,7 @@ export class AudioStorageLimiterService
     }
 
     return this.mutex.runExclusive(async () => {
-      const items = await this.r2.listAllObjects(AUDIO_PREFIX);
+      const items = await this.r2.listAllObjects(R2_WHATSAPP_AUDIO_PREFIX);
       const totalBytes = items.reduce((acc, it) => acc + it.size, 0);
       if (totalBytes <= this.maxBytes) {
         return { totalBytes, deletedCount: 0, freedBytes: 0 };
@@ -143,12 +140,7 @@ export class AudioStorageLimiterService
 
       if (deleted.length > 0) {
         try {
-          const res = await this.messageModel
-            .updateMany(
-              { 'attachment.storageKey': { $in: deleted } },
-              { $unset: { 'attachment.storageKey': 1 } },
-            )
-            .exec();
+          const res = await this.messageRepo.clearStorageKeys(deleted);
           this.log.log(
             `Quota aplicada: ${String(deleted.length)} objetos apagados do R2, ${String(
               res.modifiedCount ?? 0,

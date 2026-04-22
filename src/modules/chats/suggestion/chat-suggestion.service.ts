@@ -1,22 +1,33 @@
 import { Injectable } from '@nestjs/common';
-import { AiService } from '../ai/ai.service';
-import { PlanCatalogService } from '../catalog/plan-catalog.service';
-import { SettingsService } from '../../core/settings/settings.service';
-import { ChatsService } from './chats.service';
+import { SettingsService } from '../../../core/settings/settings.service';
+import { AiService } from '../../ai/ai.service';
+import { PlanCatalogService } from '../../catalog/plan-catalog.service';
+import { ChatAudioService } from '../audio/chat-audio.service';
+import { ChatsService } from '../chats.service';
 
 const LAST_CUSTOMER_MESSAGES = 12;
 
+/**
+ * Caso de uso: montar o prompt do Gemini e sugerir a próxima mensagem
+ * do vendedor. Fica isolado num sub-domínio (`suggestion/`) para não
+ * inflar `ChatsService` com lógica de IA/catálogo.
+ */
 @Injectable()
 export class ChatSuggestionService {
   constructor(
     private readonly chatsService: ChatsService,
+    private readonly chatAudioService: ChatAudioService,
     private readonly settingsService: SettingsService,
     private readonly planCatalogService: PlanCatalogService,
     private readonly aiService: AiService,
   ) {}
 
-  async suggestReply(chatId: string): Promise<{ suggestion: string; model: string }> {
-    await this.chatsService.transcribePendingAudiosForChat(chatId);
+  async suggestReply(
+    chatId: string,
+  ): Promise<{ suggestion: string; model: string }> {
+    // Garante que áudios pendentes viram texto antes de montar o prompt.
+    await this.chatAudioService.transcribePendingAudios(chatId);
+
     const messages = await this.chatsService.listMessages(chatId);
     const historyLines: string[] = [];
     for (const m of messages) {
@@ -40,14 +51,16 @@ export class ChatSuggestionService {
 
     const historyBlock =
       historyLines.length > 0
-        ? `Historico do WhatsApp (mais antigo primeiro):\n${historyLines.join('\n')}`
-        : 'Historico do WhatsApp: (ainda sem mensagens neste chat).';
+        ? `Histórico do WhatsApp (mais antigo primeiro):\n${historyLines.join('\n')}`
+        : 'Histórico do WhatsApp: (ainda sem mensagens neste chat).';
 
     const prompt = [
-      'Voce sugere APENAS a proxima mensagem que o VENDEDOR deve enviar no WhatsApp, em portugues do Brasil.',
-      'Baseie-se no historico abaixo, nas instrucoes internas (se houver) e no catalogo odontologico (contexto interno).',
-      'Regras: sem markdown; sem aspas; sem prefixos do tipo "Vendedor:"; uma unica mensagem curta ou media; tom profissional e cordial.',
-      instructions ? `Instrucoes internas para o time comercial:\n${instructions}` : '',
+      'Você sugere APENAS a próxima mensagem que o VENDEDOR deve enviar no WhatsApp, em português do Brasil.',
+      'Baseie-se no histórico abaixo, nas instruções internas (se houver) e no catálogo odontológico (contexto interno).',
+      'Regras: sem markdown; sem aspas; sem prefixos do tipo "Vendedor:"; uma única mensagem curta ou média; tom profissional e cordial.',
+      instructions
+        ? `Instruções internas para o time comercial:\n${instructions}`
+        : '',
       catalogBlock,
       historyBlock,
       'Responda somente com o texto da mensagem a enviar, nada mais.',

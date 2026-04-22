@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ChatsController } from './chats.controller';
 
-jest.mock('./chat-suggestion.service', () => ({
+jest.mock('./suggestion/chat-suggestion.service', () => ({
   ChatSuggestionService: class ChatSuggestionService {},
 }));
 
@@ -9,8 +9,8 @@ jest.mock('./chats.service', () => ({
   ChatsService: class ChatsService {},
 }));
 
-import { ChatSuggestionService } from './chat-suggestion.service';
 import { ChatsService } from './chats.service';
+import { ChatSuggestionService } from './suggestion/chat-suggestion.service';
 
 describe('ChatsController', () => {
   let controller: ChatsController;

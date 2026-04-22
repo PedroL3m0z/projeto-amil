@@ -6,17 +6,23 @@ import {
   OnApplicationBootstrap,
   OnModuleDestroy,
 } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { BotService } from '../../core/bot/bot.service';
+import { AnyBulkWriteOperation } from 'mongoose';
+import { BotService } from '../../../core/bot/bot.service';
 import type {
   BotChatMessage,
   BotChatSummary,
-} from '../../core/bot/bot.types';
-import { ChatsGateway } from './chats.gateway';
-import { Chat, ChatDocument } from './schemas/chat.schema';
-import { Message, MessageDocument } from './schemas/message.schema';
+} from '../../../core/bot/bot.types';
+import { ChatRepository } from '../repositories/chat.repository';
+import { MessageRepository } from '../repositories/message.repository';
+import { ChatsGateway } from '../ws/chats.gateway';
+import type { ChatDocument } from '../schemas/chat.schema';
+import type { MessageDocument } from '../schemas/message.schema';
 
+/**
+ * Observa o estado em memória do `BotService` e reflete no Mongo.
+ * Sempre que persistir mensagens de um chat, avisa o gateway para
+ * re-emitir o snapshot enriquecido (com URLs presigned).
+ */
 @Injectable()
 export class ChatsSyncService
   implements OnApplicationBootstrap, OnModuleDestroy
@@ -29,9 +35,8 @@ export class ChatsSyncService
 
   constructor(
     private readonly botService: BotService,
-    @InjectModel(Chat.name) private readonly chatModel: Model<ChatDocument>,
-    @InjectModel(Message.name)
-    private readonly messageModel: Model<MessageDocument>,
+    private readonly chatRepo: ChatRepository,
+    private readonly messageRepo: MessageRepository,
     @Inject(forwardRef(() => ChatsGateway))
     private readonly chatsGateway: ChatsGateway,
   ) {}
@@ -105,7 +110,7 @@ export class ChatsSyncService
 
   private async persistChats(chats: BotChatSummary[]) {
     if (chats.length === 0) return;
-    const ops = chats.map((c) => ({
+    const ops: AnyBulkWriteOperation<ChatDocument>[] = chats.map((c) => ({
       updateOne: {
         filter: { chatId: c.id },
         update: {
@@ -123,12 +128,12 @@ export class ChatsSyncService
         upsert: true,
       },
     }));
-    await this.chatModel.bulkWrite(ops, { ordered: false });
+    await this.chatRepo.bulkUpsert(ops);
   }
 
   private async persistMessages(chatId: string, messages: BotChatMessage[]) {
     if (messages.length === 0) return;
-    const ops = messages.map((m) => {
+    const ops: AnyBulkWriteOperation<MessageDocument>[] = messages.map((m) => {
       const set: Record<string, unknown> = {
         chatId,
         messageId: m.id,
@@ -154,6 +159,6 @@ export class ChatsSyncService
         },
       };
     });
-    await this.messageModel.bulkWrite(ops, { ordered: false });
+    await this.messageRepo.bulkUpsert(ops);
   }
 }

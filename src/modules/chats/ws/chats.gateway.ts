@@ -1,12 +1,17 @@
+import { OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import {
   OnGatewayConnection,
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
-import { OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import type { Server, Socket } from 'socket.io';
-import { ChatsService } from './chats.service';
+import { ChatsService } from '../chats.service';
 
+/**
+ * Gateway Socket.IO dedicado ao namespace `/chats`.
+ * Fica em `ws/` para separar a camada de transporte websocket do
+ * HTTP (`chats.controller`) e dos use cases.
+ */
 @WebSocketGateway({
   namespace: '/chats',
   cors: {

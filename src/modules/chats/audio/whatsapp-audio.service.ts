@@ -4,15 +4,14 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
 import type { WAMessage } from 'baileys';
-import { Model } from 'mongoose';
-import { BotService } from '../../core/bot/bot.service';
-import { unwrapMessage } from '../../core/bot/message-unwrap.util';
-import { R2Service } from '../../core/r2/r2.service';
-import { AiService } from '../ai/ai.service';
+import { BotService } from '../../../core/bot/bot.service';
+import { unwrapMessage } from '../../../core/bot/message-unwrap.util';
+import { R2Service } from '../../../core/r2/r2.service';
+import { AiService } from '../../ai/ai.service';
+import { MessageRepository } from '../repositories/message.repository';
 import { AudioStorageLimiterService } from './audio-storage-limiter.service';
-import { Message, MessageDocument } from './schemas/message.schema';
+import { R2_WHATSAPP_AUDIO_PREFIX } from './chat-audio.constants';
 
 function extensionFor(mimeType: string): string {
   const clean = mimeType.split(';')[0].trim().toLowerCase();
@@ -24,6 +23,12 @@ function extensionFor(mimeType: string): string {
   return 'bin';
 }
 
+/**
+ * Intercepta mensagens cruas do WhatsApp (`messages.upsert`), faz o download
+ * do áudio, sobe no R2 e dispara a transcrição imediata para o modelo de IA.
+ *
+ * As atualizações no Mongo passam pelo `ChatsRepository` (nada de query inline).
+ */
 @Injectable()
 export class WhatsappAudioService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger(WhatsappAudioService.name);
@@ -35,8 +40,7 @@ export class WhatsappAudioService implements OnModuleInit, OnModuleDestroy {
     private readonly r2: R2Service,
     private readonly aiService: AiService,
     private readonly limiter: AudioStorageLimiterService,
-    @InjectModel(Message.name)
-    private readonly messageModel: Model<MessageDocument>,
+    private readonly messageRepo: MessageRepository,
   ) {}
 
   onModuleInit() {
@@ -73,10 +77,7 @@ export class WhatsappAudioService implements OnModuleInit, OnModuleDestroy {
       const audioMsg = unwrapMessage(m.message)?.audioMessage;
       if (!audioMsg) return;
 
-      const existing = await this.messageModel
-        .findOne({ chatId, messageId: stableId }, { attachment: 1, text: 1 })
-        .lean()
-        .exec();
+      const existing = await this.messageRepo.findAttachment(chatId, stableId);
 
       const alreadyTranscribed =
         existing?.text?.trim().startsWith('[Áudio Transcrito]') ?? false;
@@ -91,12 +92,18 @@ export class WhatsappAudioService implements OnModuleInit, OnModuleDestroy {
       const needsUpload = this.r2.isEnabled() && !hasStorage;
 
       if (!needsTranscription && !needsUpload) {
-        this.log.debug('R2 não configurado e mensagem própria; sem upload nem transcrição.');
+        this.log.debug(
+          'R2 não configurado e mensagem própria; sem upload nem transcrição.',
+        );
         return;
       }
 
       let buffer: Buffer | null = null;
-      if (hasStorage && this.r2.isEnabled() && existing?.attachment?.storageKey) {
+      if (
+        hasStorage &&
+        this.r2.isEnabled() &&
+        existing?.attachment?.storageKey
+      ) {
         buffer = await this.r2.getObjectBuffer(existing.attachment.storageKey);
       }
       if (!buffer?.length) {
@@ -111,7 +118,7 @@ export class WhatsappAudioService implements OnModuleInit, OnModuleDestroy {
 
       if (needsUpload) {
         const ext = extensionFor(mimeType);
-        const storageKey = `whatsapp/audio/${r2Folder}/${stableId}.${ext}`;
+        const storageKey = `${R2_WHATSAPP_AUDIO_PREFIX}${r2Folder}/${stableId}.${ext}`;
 
         await this.r2.putObject({
           key: storageKey,
@@ -120,21 +127,15 @@ export class WhatsappAudioService implements OnModuleInit, OnModuleDestroy {
           cacheControl: 'private, max-age=31536000, immutable',
         });
 
-        await this.messageModel
-          .updateOne(
-            { chatId, messageId: stableId },
-            {
-              $set: {
-                'attachment.kind': 'audio',
-                'attachment.mimeType': mimeType,
-                'attachment.ptt': audioMsg.ptt ?? undefined,
-                'attachment.durationSec':
-                  typeof audioMsg.seconds === 'number' ? audioMsg.seconds : undefined,
-                'attachment.storageKey': storageKey,
-              },
-            },
-          )
-          .exec();
+        await this.messageRepo.upsertAudioAttachment({
+          chatId,
+          messageId: stableId,
+          mimeType,
+          ptt: audioMsg.ptt ?? undefined,
+          durationSec:
+            typeof audioMsg.seconds === 'number' ? audioMsg.seconds : undefined,
+          storageKey,
+        });
 
         this.botService.markAttachmentReady(chatId, stableId);
         this.log.log(`Áudio persistido em R2: ${storageKey}`);

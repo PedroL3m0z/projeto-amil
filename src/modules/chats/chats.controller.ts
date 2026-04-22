@@ -16,8 +16,8 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { SendChatMessageDto } from './dto/send-chat-message.dto';
-import { ChatSuggestionService } from './chat-suggestion.service';
 import { ChatsService } from './chats.service';
+import { ChatSuggestionService } from './suggestion/chat-suggestion.service';
 
 @Controller('chats')
 @ApiTags('Chats')
